@@ -617,11 +617,28 @@ def main():
      """, unsafe_allow_html=True)
 
         uploaded_file = st.file_uploader(
-            "Upload CSV or Excel file",
-            type=["xlsx", "xls", "csv"],
-            label_visibility="collapsed"
-        )
+    "Upload CSV or Excel file",
+    type=["xlsx", "xls", "csv"],
+    label_visibility="collapsed"
+)
 
+if uploaded_file:
+    st.markdown(
+        f"""
+        <div style="
+            margin-top:10px;
+            padding:12px;
+            border-radius:10px;
+            background:#10243a;
+            border:1px solid rgba(0,255,170,0.2);
+            color:white;
+            font-size:15px;
+        ">
+            📄 <b>{uploaded_file.name}</b>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
     # ---------------- FILE PROCESSING (below the split) ---------------- #
     if uploaded_file is not None:
         with st.spinner("Reading file..."):
