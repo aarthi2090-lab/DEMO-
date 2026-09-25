@@ -14,7 +14,7 @@ from google import genai
 # -----------------------------
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 # Using gemini-2.5-flash for fast and accurate code/SQL generation
-GEMINI_MODEL_NAME = "gemini-2.5-flash" 
+GEMINI_MODEL_NAME = "gemini-3.8-flash" 
 
 if not GEMINI_API_KEY:
     st.error("GEMINI_API_KEY environment variable is not set. Please set it before running.")
