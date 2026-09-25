@@ -267,710 +267,401 @@ def process_row(row):
 
     return sql_src, sql_tgt
 def main():
-    import html
-    from pathlib import Path
+    refresh_schema_chunks()
 
-    # set_page_config must be the first Streamlit command
     st.set_page_config(
         page_title="GEN AI SQL Generator",
         page_icon="⚙️",
         layout="wide"
     )
 
-    # Initialize uploader key for clearing/replacing files
-    if "uploader_key" not in st.session_state:
-        st.session_state.uploader_key = 0
+    # ---------------- Custom CSS with glow effects ---------------- #
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;600;700&display=swap');
 
-    # Refresh Snowflake schema chunks
-    refresh_schema_chunks()
+    .stApp {
+        background: linear-gradient(135deg, #020b1a 0%, #0a1628 40%, #0d1f35 70%, #081422 100%);
+    }
 
-    # ---------------- Custom CSS ---------------- #
-    st.markdown(
-        """
-        <style>
-        @import url(
-            'https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;600;700&display=swap'
-        );
+    .block-container {
+        padding-top: 1rem;
+        max-width: 1200px;
+    }
 
-        .stApp {
-            background: linear-gradient(
-                135deg,
-                #020b1a 0%,
-                #0a1628 40%,
-                #0d1f35 70%,
-                #081422 100%
-            );
-            color: rgba(255, 255, 255, 0.85);
-        }
+    /* HERO BANNER */
+    .hero-banner {
+        background: linear-gradient(135deg, #050d20, #0b1a2e, #0a2540);
+        padding: 2.5rem 2rem 2rem;
+        border-radius: 20px;
+        text-align: center;
+        margin-bottom: 2.5rem;
+        box-shadow: 0 0 40px rgba(0, 255, 170, 0.08), 0 0 80px rgba(0, 170, 255, 0.05);
+        border: 1px solid rgba(0, 255, 170, 0.1);
+        position: relative;
+        overflow: hidden;
+    }
 
-        .block-container {
-            padding-top: 1rem;
-            max-width: 1200px;
-        }
+    .hero-banner::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(ellipse at center, rgba(0,255,170,0.03) 0%, transparent 70%);
+        animation: rotate 20s linear infinite;
+    }
 
-        /* HERO BANNER */
-        .hero-banner {
-            background: linear-gradient(
-                135deg,
-                #050d20,
-                #0b1a2e,
-                #0a2540
-            );
-            padding: 2.5rem 2rem 2rem;
-            border-radius: 20px;
-            text-align: center;
-            margin-bottom: 2.5rem;
-            box-shadow:
-                0 0 40px rgba(0, 255, 170, 0.08),
-                0 0 80px rgba(0, 170, 255, 0.05);
-            border: 1px solid rgba(0, 255, 170, 0.1);
-            position: relative;
-            overflow: hidden;
-        }
+    @keyframes rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
 
-        .hero-banner::before {
-            content: "";
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(
-                ellipse at center,
-                rgba(0, 255, 170, 0.03) 0%,
-                transparent 70%
-            );
-            animation: rotate 20s linear infinite;
-        }
+    .hero-title {
+        font-family: 'Orbitron', monospace;
+        font-size: 42px;
+        font-weight: 900;
+        letter-spacing: 4px;
+        color: #00ffaa;
+        text-shadow:
+            0 0 10px rgba(0, 255, 170, 0.6),
+            0 0 20px rgba(0, 255, 170, 0.4),
+            0 0 40px rgba(0, 255, 170, 0.3),
+            0 0 80px rgba(0, 255, 170, 0.15);
+        position: relative;
+        z-index: 1;
+        animation: glowPulse 3s ease-in-out infinite alternate;
+    }
 
-        @keyframes rotate {
-            from {
-                transform: rotate(0deg);
-            }
-
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        .hero-title {
-            font-family: 'Orbitron', monospace;
-            font-size: 42px;
-            font-weight: 900;
-            letter-spacing: 4px;
-            color: #00ffaa;
+    @keyframes glowPulse {
+        from {
             text-shadow:
                 0 0 10px rgba(0, 255, 170, 0.6),
                 0 0 20px rgba(0, 255, 170, 0.4),
                 0 0 40px rgba(0, 255, 170, 0.3),
                 0 0 80px rgba(0, 255, 170, 0.15);
-            position: relative;
-            z-index: 1;
-            animation: glowPulse 3s ease-in-out infinite alternate;
         }
-
-        @keyframes glowPulse {
-            from {
-                text-shadow:
-                    0 0 10px rgba(0, 255, 170, 0.6),
-                    0 0 20px rgba(0, 255, 170, 0.4),
-                    0 0 40px rgba(0, 255, 170, 0.3),
-                    0 0 80px rgba(0, 255, 170, 0.15);
-            }
-
-            to {
-                text-shadow:
-                    0 0 15px rgba(0, 255, 170, 0.8),
-                    0 0 30px rgba(0, 255, 170, 0.5),
-                    0 0 60px rgba(0, 255, 170, 0.4),
-                    0 0 100px rgba(0, 255, 170, 0.2);
-            }
-        }
-
-        .hero-title .sql-text {
-            color: #00ccff;
+        to {
             text-shadow:
-                0 0 10px rgba(0, 204, 255, 0.6),
-                0 0 20px rgba(0, 204, 255, 0.4),
-                0 0 40px rgba(0, 204, 255, 0.3),
-                0 0 80px rgba(0, 204, 255, 0.15);
+                0 0 15px rgba(0, 255, 170, 0.8),
+                0 0 30px rgba(0, 255, 170, 0.5),
+                0 0 60px rgba(0, 255, 170, 0.4),
+                0 0 100px rgba(0, 255, 170, 0.2);
         }
+    }
 
-        .hero-sub {
-            margin-top: 12px;
-            color: rgba(255, 255, 255, 0.55);
-            font-family: 'Inter', sans-serif;
-            font-size: 14px;
-            font-weight: 300;
-            letter-spacing: 1px;
-            position: relative;
-            z-index: 1;
-        }
+    .hero-title .sql-text {
+        color: #00ccff;
+        text-shadow:
+            0 0 10px rgba(0, 204, 255, 0.6),
+            0 0 20px rgba(0, 204, 255, 0.4),
+            0 0 40px rgba(0, 204, 255, 0.3),
+            0 0 80px rgba(0, 204, 255, 0.15);
+    }
 
-        /* SPLIT LAYOUT CARD */
-        .split-card {
-            background: linear-gradient(
-                145deg,
-                #0a1628,
-                #0d1f35
-            );
-            border-radius: 16px;
-            padding: 2rem;
-            border: 1px solid rgba(0, 255, 170, 0.08);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            min-height: 320px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
+    .hero-sub {
+        margin-top: 12px;
+        color: rgba(255,255,255,0.5);
+        font-family: 'Inter', sans-serif;
+        font-size: 14px;
+        font-weight: 300;
+        letter-spacing: 1px;
+        position: relative;
+        z-index: 1;
+    }
 
-        .image-card {
-            position: relative;
-            overflow: hidden;
-        }
+    /* SPLIT LAYOUT CARDS */
+    .split-card {
+        background: linear-gradient(145deg, #0a1628, #0d1f35);
+        border-radius: 16px;
+        padding: 2rem;
+        border: 1px solid rgba(0, 255, 170, 0.08);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        min-height: 320px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
 
-        .image-card::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            border-radius: 16px;
-            background: radial-gradient(
-                ellipse at center,
-                rgba(0, 170, 255, 0.05) 0%,
-                transparent 70%
-            );
-            pointer-events: none;
-        }
+    .image-card {
+        position: relative;
+        overflow: hidden;
+    }
 
-        .image-card img {
-            width: 100%;
-            max-height: 280px;
-            border-radius: 12px;
-            object-fit: contain;
-            filter: drop-shadow(
-                0 0 20px rgba(0, 170, 255, 0.15)
-            );
-        }
+    .image-card::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: 16px;
+        background: radial-gradient(ellipse at center, rgba(0,170,255,0.05) 0%, transparent 70%);
+        pointer-events: none;
+    }
 
-        /* UPLOAD SECTION TITLE */
-        .upload-section-title {
-            font-family: 'Inter', sans-serif;
-            font-size: 16px;
-            font-weight: 700;
-            color: #ffffff;
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
+    .image-card img {
+        max-width: 100%;
+        max-height: 280px;
+        border-radius: 12px;
+        object-fit: contain;
+        filter: drop-shadow(0 0 20px rgba(0, 170, 255, 0.15));
+    }
 
-        .upload-section-title .icon {
-            font-size: 20px;
-        }
+    .upload-section-title {
+        font-family: 'Inter', sans-serif;
+        font-size: 20px;
+        font-weight: 700;
+        color: #ffffff;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
 
-        /* FILE UPLOADER OUTER CONTAINER */
-        [data-testid="stFileUploader"] {
-            background: rgba(255, 255, 255, 0.025);
-            border-radius: 12px;
-            padding: 1rem;
-            border: 1px dashed rgba(0, 255, 170, 0.25);
-        }
+    .upload-section-title .icon {
+        font-size: 22px;
+    }
 
-        [data-testid="stFileUploader"]:hover {
-            border-color: rgba(0, 255, 170, 0.5);
-            box-shadow: 0 0 20px rgba(0, 255, 170, 0.06);
-        }
+    /* FILE UPLOADER STYLING */
+    [data-testid="stFileUploader"] {
+        background: rgba(255,255,255,0.03);
+        border-radius: 12px;
+        padding: 1rem;
+        border: 1px dashed rgba(0, 255, 170, 0.2);
+    }
 
-        /* FILE UPLOADER DROP AREA */
-        [data-testid="stFileUploaderDropzone"] {
-            background: #0a1628 !important;
-            border: 1px dashed rgba(0, 255, 170, 0.35) !important;
-            border-radius: 12px !important;
-        }
+    [data-testid="stFileUploader"]:hover {
+        border-color: rgba(0, 255, 170, 0.4);
+        box-shadow: 0 0 20px rgba(0, 255, 170, 0.05);
+    }
 
-        /* DROP AREA TEXT ONLY */
-        [data-testid="stFileUploaderDropzone"] p,
-        [data-testid="stFileUploaderDropzone"] span,
-        [data-testid="stFileUploaderDropzone"] small {
-            color: rgba(255, 255, 255, 0.78) !important;
-        }
+    /* BUTTONS */
+    .stButton > button {
+        background: linear-gradient(135deg, #00ffaa, #00ccff);
+        color: #07121f;
+        font-family: 'Inter', sans-serif;
+        font-weight: 700;
+        border-radius: 12px;
+        height: 50px;
+        border: none;
+        width: 100%;
+        font-size: 16px;
+        letter-spacing: 0.5px;
+        box-shadow: 0 0 20px rgba(0, 255, 170, 0.2);
+        transition: all 0.3s ease;
+    }
 
-        /* BROWSE FILES BUTTON */
-        [data-testid="stFileUploaderDropzone"] button {
-            background: linear-gradient(
-                135deg,
-                #00ffaa,
-                #00ccff
-            ) !important;
-            color: #07121f !important;
-            font-weight: 700 !important;
-            border: none !important;
-            border-radius: 8px !important;
-            padding: 0.45rem 1.3rem !important;
-            min-width: 120px !important;
-            box-shadow: none !important;
-        }
+    .stButton > button:hover {
+        box-shadow: 0 0 30px rgba(0, 255, 170, 0.4), 0 0 60px rgba(0, 255, 170, 0.15);
+        transform: translateY(-1px);
+    }
 
-        [data-testid="stFileUploaderDropzone"] button * {
-            color: #07121f !important;
-        }
+    .stDownloadButton > button {
+        background: linear-gradient(135deg, #00aaff, #0077ff);
+        color: white;
+        font-family: 'Inter', sans-serif;
+        font-weight: 700;
+        border-radius: 12px;
+        height: 50px;
+        border: none;
+        width: 100%;
+        font-size: 16px;
+        box-shadow: 0 0 20px rgba(0, 170, 255, 0.2);
+    }
 
-        /*
-        Hide Streamlit Cloud's broken uploaded-file row.
-        A custom uploaded-file card is displayed below instead.
-        */
-        [data-testid="stFileUploaderFile"] {
-            display: none !important;
-        }
+    .stDownloadButton > button:hover {
+        box-shadow: 0 0 30px rgba(0, 170, 255, 0.4), 0 0 60px rgba(0, 170, 255, 0.15);
+    }
 
-        /* CUSTOM UPLOADED FILE CARD */
-        .custom-file-card {
-            margin-top: 10px;
-            padding: 12px 14px;
-            border-radius: 10px;
-            background: linear-gradient(
-                135deg,
-                #10243a,
-                #0d1f35
-            );
-            border: 1px solid rgba(0, 255, 170, 0.3);
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
-            font-family: 'Inter', sans-serif;
-        }
+    /* METRICS */
+    [data-testid="stMetric"] {
+        background: rgba(0, 255, 170, 0.05);
+        border: 1px solid rgba(0, 255, 170, 0.1);
+        border-radius: 12px;
+        padding: 1rem;
+    }
 
-        .custom-file-name {
-            color: #ffffff;
-            font-size: 14px;
-            font-weight: 600;
-            overflow-wrap: anywhere;
-        }
+    [data-testid="stMetricValue"] {
+        color: #00ffaa;
+        font-family: 'Orbitron', monospace;
+    }
 
-        .custom-file-size {
-            color: rgba(255, 255, 255, 0.55);
-            font-size: 12px;
-            margin-top: 4px;
-        }
+    /* DATAFRAME */
+    [data-testid="stDataFrame"] {
+        border-radius: 12px;
+        overflow: hidden;
+    }
 
-        /* STANDARD ACTION BUTTONS */
-        .stButton > button {
-            background: linear-gradient(
-                135deg,
-                #00ffaa,
-                #00ccff
-            );
-            color: #07121f;
-            font-family: 'Inter', sans-serif;
-            font-weight: 700;
-            border-radius: 12px;
-            min-height: 46px;
-            border: none;
-            width: 100%;
-            font-size: 15px;
-            letter-spacing: 0.3px;
-            box-shadow: 0 0 20px rgba(0, 255, 170, 0.2);
-            transition: all 0.3s ease;
-        }
+    /* SUCCESS / SPINNER */
+        /* SUCCESS / SPINNER */
+    .stSuccess, [data-testid="stNotification"] {
+        background: rgba(0, 255, 170, 0.08) !important;
+        border: 1px solid rgba(0, 255, 170, 0.2) !important;
+        border-radius: 12px;
+        color: #00ffaa !important;
+    }
 
-        .stButton > button:hover {
-            color: #07121f;
-            box-shadow:
-                0 0 30px rgba(0, 255, 170, 0.4),
-                0 0 60px rgba(0, 255, 170, 0.15);
-            transform: translateY(-1px);
-        }
+    .stSuccess p, [data-testid="stNotification"] p {
+        color: #00ffaa !important;
+    }
 
-        /* DOWNLOAD BUTTON */
-        .stDownloadButton > button {
-            background: linear-gradient(
-                135deg,
-                #00aaff,
-                #0077ff
-            ) !important;
-            color: #ffffff !important;
-            font-family: 'Inter', sans-serif;
-            font-weight: 700;
-            border-radius: 12px;
-            min-height: 50px;
-            border: none;
-            width: 100%;
-            font-size: 16px;
-            box-shadow: 0 0 20px rgba(0, 170, 255, 0.2);
-        }
+    /* GLOBAL TEXT VISIBILITY */
+    .stApp, .stApp p, .stApp span, .stApp label, .stApp div {
+        color: rgba(255, 255, 255, 0.85);
+    }
 
-        .stDownloadButton > button:hover {
-            color: #ffffff !important;
-            box-shadow:
-                0 0 30px rgba(0, 170, 255, 0.4),
-                0 0 60px rgba(0, 170, 255, 0.15);
-        }
+    /* TOGGLE / CHECKBOX LABELS */
+    [data-testid="stCheckbox"] label span,
+    .stToggle label span,
+    [data-testid="stToggle"] label span {
+        color: rgba(255, 255, 255, 0.85) !important;
+    }
 
-        /* METRICS */
-        [data-testid="stMetric"] {
-            background: rgba(0, 255, 170, 0.05);
-            border: 1px solid rgba(0, 255, 170, 0.1);
-            border-radius: 12px;
-            padding: 1rem;
-        }
+    /* METRIC LABELS */
+    [data-testid="stMetricLabel"] {
+        color: rgba(255, 255, 255, 0.6) !important;
+    }
 
-        [data-testid="stMetricValue"] {
-            color: #00ffaa;
-            font-family: 'Orbitron', monospace;
-        }
+    [data-testid="stMetricLabel"] p {
+        color: rgba(255, 255, 255, 0.6) !important;
+    }
 
-        [data-testid="stMetricLabel"],
-        [data-testid="stMetricLabel"] p {
-            color: rgba(255, 255, 255, 0.65) !important;
-        }
+    /* FILE UPLOADER TEXT */
+    /* FILE UPLOADER TEXT & ELEMENTS */
+    [data-testid="stFileUploader"] *,
+    [data-testid="stFileUploaderDropzone"] * {
+        color: rgba(255, 255, 255, 0.7) !important;
+    }
 
-        /* DATAFRAME */
-        [data-testid="stDataFrame"] {
-            border-radius: 12px;
-            overflow: hidden;
-        }
+        [data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
+        background: #0a1628 !important;
+        border: 1px dashed rgba(0, 255, 170, 0.3) !important;
+        border-radius: 12px !important;
+    }
 
-        /* SUCCESS AND NOTIFICATIONS */
-        .stSuccess,
-        [data-testid="stNotification"] {
-            background: rgba(0, 255, 170, 0.08) !important;
-            border: 1px solid rgba(0, 255, 170, 0.2) !important;
-            border-radius: 12px;
-        }
+    [data-testid="stFileUploaderDropzone"] button {
+        background: linear-gradient(135deg, #00ffaa, #00ccff) !important;
+        color: #07121f !important;
+        font-weight: 700 !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 0.4rem 1.5rem !important;
+        min-width: 120px !important;
+    }
+    /* DOWNLOAD BUTTON TEXT */
+    .stDownloadButton > button {
+        color: white !important;
+    }
 
-        .stSuccess p,
-        [data-testid="stNotification"] p {
-            color: #00ffaa !important;
-        }
+    /* DIVIDER */
+    hr {
+        border-color: rgba(0, 255, 170, 0.1);
+    }
 
-        /* TOGGLE AND CHECKBOX LABELS */
-        [data-testid="stCheckbox"] label span,
-        [data-testid="stToggle"] label span {
-            color: rgba(255, 255, 255, 0.85) !important;
-        }
-
-        /* DIVIDER */
-        hr {
-            border-color: rgba(0, 255, 170, 0.1);
-        }
-
-        /* PLACEHOLDER IMAGE */
-        .placeholder-img {
-            width: 100%;
-            max-width: 360px;
-            opacity: 0.9;
-        }
-
-        /* RESPONSIVE UI */
-        @media (max-width: 768px) {
-            .hero-title {
-                font-size: 28px;
-                letter-spacing: 2px;
-            }
-
-            .hero-banner {
-                padding: 2rem 1rem;
-            }
-
-            .split-card {
-                min-height: 260px;
-                padding: 1rem;
-            }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+    /* Placeholder image SVG */
+    .placeholder-img {
+        width: 100%;
+        max-width: 360px;
+        opacity: 0.9;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
     # ---------------- HERO BANNER ---------------- #
-    st.markdown(
-        """
-        <div class="hero-banner">
-            <div class="hero-title">
-                AI-POWERED <span class="sql-text">SQL</span> GENERATOR
-            </div>
-            <div class="hero-sub">
-                Turn Business Logic into Optimized Snowflake SQL Instantly
-            </div>
+    st.markdown("""
+    <div class="hero-banner">
+        <div class="hero-title">
+            AI-POWERED <span class="sql-text">SQL</span> GENERATOR
         </div>
-        """,
-        unsafe_allow_html=True
-    )
+        <div class="hero-sub">
+            Turn Business Logic into Optimized Snowflake SQL -Instantly 
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # ---------------- SPLIT LAYOUT ---------------- #
+    # ---------------- SPLIT LAYOUT: Image | Upload ---------------- #
     col_img, col_upload = st.columns([1, 1], gap="large")
 
-    # ---------------- IMAGE SECTION ---------------- #
     with col_img:
-        image_path = (
-            Path(__file__).resolve().parent
-            / "gen_ai_sql_bg.jpg.png"
-        )
-
+        # Load background image via base64
+        img_path = "gen_ai_sql_bg.jpg.png"
         try:
-            with image_path.open("rb") as image_file:
-                encoded_img = base64.b64encode(
-                    image_file.read()
-                ).decode("utf-8")
-
-            st.markdown(
-                f"""
-                <div class="split-card image-card">
-                    data:image/png;base64,{encoded_img}
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-        except FileNotFoundError:
-            st.markdown(
-                """
-                <div
-                    class="split-card image-card"
-                    style="text-align:center;"
-                >
-                    <svg
-                        class="placeholder-img"
-                        viewBox="0 0 400 300"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <rect
-                            width="400"
-                            height="300"
-                            rx="16"
-                            fill="#0a1628"
-                        />
-
-                        <text
-                            x="200"
-                            y="130"
-                            text-anchor="middle"
-                            font-family="Orbitron, monospace"
-                            font-size="28"
-                            font-weight="900"
-                            fill="#00ffaa"
-                        >
-                            GEN AI
-                        </text>
-
-                        <text
-                            x="200"
-                            y="170"
-                            text-anchor="middle"
-                            font-family="Orbitron, monospace"
-                            font-size="28"
-                            font-weight="900"
-                            fill="#00ccff"
-                        >
-                            SQL
-                        </text>
-
-                        <text
-                            x="200"
-                            y="210"
-                            text-anchor="middle"
-                            font-family="Inter, sans-serif"
-                            font-size="12"
-                            fill="rgba(255,255,255,0.4)"
-                        >
-                            Powered by Snowflake Cortex
-                        </text>
-                    </svg>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-    # ---------------- UPLOAD SECTION ---------------- #
-    with col_upload:
-        st.markdown(
-            """
-            <div class="upload-section-title">
-                <span class="icon">📁</span>
-                <span>Upload your requirements</span>
+            with open(img_path, "rb") as f:
+                encoded_img = base64.b64encode(f.read()).decode()
+            st.markdown(f"""
+            <div class="split-card image-card">
+                <img src="data:image/png;base64,{encoded_img}" alt="GEN AI SQL">
             </div>
-            """,
-            unsafe_allow_html=True
-        )
+            """, unsafe_allow_html=True)
+        except FileNotFoundError:
+            st.markdown("""
+            <div class="split-card image-card" style="text-align:center;">
+                <svg class="placeholder-img" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="400" height="300" rx="16" fill="#0a1628"/>
+                    <text x="200" y="130" text-anchor="middle" font-family="Orbitron,monospace" font-size="28" font-weight="900" fill="#00ffaa" style="filter:url(#glow)">GEN AI</text>
+                    <text x="200" y="170" text-anchor="middle" font-family="Orbitron,monospace" font-size="28" font-weight="900" fill="#00ccff" style="filter:url(#glow2)">SQL</text>
+                    <text x="200" y="210" text-anchor="middle" font-family="Inter,sans-serif" font-size="12" fill="rgba(255,255,255,0.4)">Powered by Snowflake Cortex</text>
+                    <defs>
+                        <filter id="glow"><feGaussianBlur stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                        <filter id="glow2"><feGaussianBlur stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                    </defs>
+                </svg>
+            </div>
+            """, unsafe_allow_html=True)
+
+    with col_upload:
+        st.markdown("""
+        <div class="upload-section-title" style="font-size: 12px;">
+         <span class="icon">📁</span> Upload your requirements
+      </div>
+     """, unsafe_allow_html=True)
 
         uploaded_file = st.file_uploader(
             "Upload CSV or Excel file",
             type=["xlsx", "xls", "csv"],
-            label_visibility="collapsed",
-            key=f"requirements_uploader_{st.session_state.uploader_key}"
+            label_visibility="collapsed"
         )
 
-        # Custom uploaded-file display for Streamlit Cloud
-        if uploaded_file is not None:
-            safe_file_name = html.escape(uploaded_file.name)
-            file_size_kb = uploaded_file.size / 1024
-
-            st.markdown(
-                f"""
-                <div class="custom-file-card">
-                    <div class="custom-file-name">
-                        📄 {safe_file_name}
-                    </div>
-
-                    <div class="custom-file-size">
-                        {file_size_kb:.1f} KB
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-            if st.button(
-                "Clear uploaded file",
-                key="clear_uploaded_file"
-            ):
-                st.session_state.uploader_key += 1
-                st.rerun()
-
-    # ---------------- FILE PROCESSING ---------------- #
+    # ---------------- FILE PROCESSING (below the split) ---------------- #
     if uploaded_file is not None:
-        try:
-            with st.spinner("Reading file..."):
-                file_name_lower = uploaded_file.name.lower()
+        with st.spinner("Reading file..."):
+            if uploaded_file.name.lower().endswith(".csv"):
+                df = pd.read_csv(uploaded_file)
+            else:
+                df = pd.read_excel(uploaded_file)
 
-                if file_name_lower.endswith(".csv"):
-                    df = pd.read_csv(uploaded_file)
+        st.success("File uploaded successfully ✅")
 
-                elif file_name_lower.endswith(".xlsx"):
-                    df = pd.read_excel(
-                        uploaded_file,
-                        engine="openpyxl"
-                    )
+        col1, col2 = st.columns(2)
+        col1.metric("Rows", df.shape[0])
+        col2.metric("Columns", df.shape[1])
 
-                elif file_name_lower.endswith(".xls"):
-                    df = pd.read_excel(uploaded_file)
-
-                else:
-                    st.error(
-                        "Unsupported file format. "
-                        "Please upload CSV, XLSX, or XLS."
-                    )
-                    return
-
-        except Exception as error:
-            st.error(
-                f"Unable to read the uploaded file: {error}"
-            )
-            return
-
-        st.success(
-            f"File uploaded successfully: {uploaded_file.name} ✅"
-        )
-
-        metric_col1, metric_col2 = st.columns(2)
-
-        metric_col1.metric(
-            "Rows",
-            df.shape[0]
-        )
-
-        metric_col2.metric(
-            "Columns",
-            df.shape[1]
-        )
-
-        if st.toggle(
-            "Preview data",
-            key="preview_uploaded_data"
-        ):
-            st.dataframe(
-                df.head(1000),
-                use_container_width=True,
-                hide_index=True
-            )
+        if st.toggle("Preview data"):
+            st.dataframe(df.head(1000), use_container_width=True, hide_index=True)
 
         st.divider()
 
-        if st.button(
-            "🤖 Generate SQL",
-            key="generate_sql_button"
-        ):
-            required_columns = {
-                "SRC_LOGIC",
-                "TARGET_LOGIC"
-            }
+        if st.button("🤖 Generate SQL"):
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                results = list(executor.map(process_row, [row for _, row in df.iterrows()]))
 
-            missing_columns = (
-                required_columns - set(df.columns)
+            for sql_src, sql_tgt in results:
+              src_generated_sql.append(sql_src)
+              tgt_generated_sql.append(sql_tgt)
+            src_validated_sql = validation_sql(src_generated_sql)
+            tgt_validated_sql = validation_sql(tgt_generated_sql)
+            df["Generated_Src_SQL"] = src_validated_sql
+            df["Generated_Tgt_SQL"] = tgt_validated_sql
+
+            csv = df.to_csv(index=False).encode("utf-8")
+            st.success("SQL generation completed ✅")
+
+            st.download_button(
+                "⬇ Download SQL file",
+                csv,
+                "output_with_sql.csv",
+                "text/csv"
             )
-
-            if missing_columns:
-                st.error(
-                    "The uploaded file is missing required "
-                    "column(s): "
-                    + ", ".join(sorted(missing_columns))
-                )
-                return
-
-            try:
-                with st.spinner(
-                    "Generating and validating SQL..."
-                ):
-                    rows = [
-                        row
-                        for _, row in df.iterrows()
-                    ]
-
-                    with ThreadPoolExecutor(
-                        max_workers=8
-                    ) as executor:
-                        results = list(
-                            executor.map(
-                                process_row,
-                                rows
-                            )
-                        )
-
-                    # Keep lists local to avoid duplicate values
-                    # across Streamlit reruns.
-                    src_generated_sql = []
-                    tgt_generated_sql = []
-
-                    for sql_src, sql_tgt in results:
-                        src_generated_sql.append(sql_src)
-                        tgt_generated_sql.append(sql_tgt)
-
-                    src_validated_sql = validation_sql(
-                        src_generated_sql
-                    )
-
-                    tgt_validated_sql = validation_sql(
-                        tgt_generated_sql
-                    )
-
-                    df["Generated_Src_SQL"] = (
-                        src_validated_sql
-                    )
-
-                    df["Generated_Tgt_SQL"] = (
-                        tgt_validated_sql
-                    )
-
-                    csv_data = df.to_csv(
-                        index=False
-                    ).encode("utf-8")
-
-                st.success(
-                    "SQL generation completed ✅"
-                )
-
-                st.download_button(
-                    label="⬇ Download SQL file",
-                    data=csv_data,
-                    file_name="output_with_sql.csv",
-                    mime="text/csv",
-                    key="download_sql_file"
-                )
-
-            except Exception as error:
-                st.error(
-                    f"SQL generation failed: {error}"
-                )
-
 
 if __name__ == "__main__":
     main()
