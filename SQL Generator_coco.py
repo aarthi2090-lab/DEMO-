@@ -507,8 +507,13 @@ def main():
     }
 
     /* GLOBAL TEXT VISIBILITY */
-    .stApp, .stApp p, .stApp span, .stApp label, .stApp div {
-        color: rgba(255, 255, 255, 0.85);
+    .stApp {
+    color: rgba(255, 255, 255, 0.85);
+    }
+
+    .stApp p,
+    .stApp label {
+    color: rgba(255, 255, 255, 0.85);
     }
 
     /* TOGGLE / CHECKBOX LABELS */
@@ -565,6 +570,16 @@ def main():
         max-width: 360px;
         opacity: 0.9;
     }
+    /* Strea*lit Cloud uploaded filename fix */*[data-testid="stFileUploaderFile"]** {
+color: white !important;
+* opacity: 1 !important;
+visib*lity: visible !important;
+}
+ 
+[data*testid="stFileUploaderFile"] {
+*background: transparent !important*
+}
+</style>
     </style>
     """, unsafe_allow_html=True)
 
