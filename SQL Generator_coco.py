@@ -282,6 +282,7 @@ def main():
 
     .stApp {
         background: linear-gradient(135deg, #020b1a 0%, #0a1628 40%, #0d1f35 70%, #081422 100%);
+        color: rgba(255, 255, 255, 0.85);
     }
 
     .block-container {
@@ -409,24 +410,24 @@ def main():
 
     .upload-section-title {
         font-family: 'Inter', sans-serif;
-        font-size: 20px;
+        font-size: 14px;
         font-weight: 700;
         color: #ffffff;
-        margin-bottom: 1rem;
+        margin-bottom: 0.8rem;
         display: flex;
         align-items: center;
         gap: 8px;
     }
 
     .upload-section-title .icon {
-        font-size: 22px;
+        font-size: 18px;
     }
 
     /* FILE UPLOADER STYLING */
     [data-testid="stFileUploader"] {
-        background: rgba(255,255,255,0.03);
+        background: rgba(255, 255, 255, 0.02);
         border-radius: 12px;
-        padding: 1rem;
+        padding: 0.8rem;
         border: 1px dashed rgba(0, 255, 170, 0.2);
     }
 
@@ -435,8 +436,69 @@ def main():
         box-shadow: 0 0 20px rgba(0, 255, 170, 0.05);
     }
 
-    /* BUTTONS */
-    .stButton > button {
+    [data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
+        background: #0a1628 !important;
+        border: 1px dashed rgba(0, 255, 170, 0.3) !important;
+        border-radius: 12px !important;
+    }
+
+    [data-testid="stFileUploaderDropzone"] button {
+        background: linear-gradient(135deg, #00ffaa, #00ccff) !important;
+        color: #07121f !important;
+        font-weight: 700 !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 0.4rem 1.2rem !important;
+        min-width: 120px !important;
+        box-shadow: none !important;
+        height: auto !important;
+    }
+
+    /* UPLOADED FILE ITEM STYLING */
+    [data-testid="stFileUploaderFile"] {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: #ffffff !important;
+        padding: 0.5rem 0.2rem !important;
+    }
+
+    [data-testid="stFileUploaderFile"] * {
+        background: transparent !important;
+        color: #ffffff !important;
+    }
+
+    [data-testid="stFileUploaderFileData"] {
+        color: #ffffff !important;
+        font-size: 14px !important;
+    }
+
+    /* SVG Icons styling inside File Uploader */
+    [data-testid="stFileUploaderFile"] svg {
+        fill: #ffffff !important;
+        color: #ffffff !important;
+        stroke: #ffffff !important;
+        filter: none !important;
+    }
+
+    [data-testid="stFileUploaderFile"] button {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: #ffffff !important;
+        height: auto !important;
+        width: auto !important;
+        padding: 0 !important;
+    }
+
+    [data-testid="stFileUploaderFile"] button:hover {
+        background: transparent !important;
+        opacity: 0.8;
+    }
+
+    /* ACTION BUTTONS */
+    .stMainBlockContainer > .stButton > button,
+    .stMainBlockContainer .stButton > button:not([data-testid="stFileUploaderDropzone"] button) {
         background: linear-gradient(135deg, #00ffaa, #00ccff);
         color: #07121f;
         font-family: 'Inter', sans-serif;
@@ -451,14 +513,14 @@ def main():
         transition: all 0.3s ease;
     }
 
-    .stButton > button:hover {
+    .stMainBlockContainer .stButton > button:hover:not([data-testid="stFileUploaderDropzone"] button) {
         box-shadow: 0 0 30px rgba(0, 255, 170, 0.4), 0 0 60px rgba(0, 255, 170, 0.15);
         transform: translateY(-1px);
     }
 
     .stDownloadButton > button {
-        background: linear-gradient(135deg, #00aaff, #0077ff);
-        color: white;
+        background: linear-gradient(135deg, #00aaff, #0077ff) !important;
+        color: white !important;
         font-family: 'Inter', sans-serif;
         font-weight: 700;
         border-radius: 12px;
@@ -493,7 +555,6 @@ def main():
     }
 
     /* SUCCESS / SPINNER */
-        /* SUCCESS / SPINNER */
     .stSuccess, [data-testid="stNotification"] {
         background: rgba(0, 255, 170, 0.08) !important;
         border: 1px solid rgba(0, 255, 170, 0.2) !important;
@@ -505,11 +566,6 @@ def main():
         color: #00ffaa !important;
     }
 
-    /* GLOBAL TEXT VISIBILITY */
-    .stApp, .stApp p, .stApp span, .stApp label, .stApp div {
-        color: rgba(255, 255, 255, 0.85);
-    }
-
     /* TOGGLE / CHECKBOX LABELS */
     [data-testid="stCheckbox"] label span,
     .stToggle label span,
@@ -518,39 +574,8 @@ def main():
     }
 
     /* METRIC LABELS */
-    [data-testid="stMetricLabel"] {
+    [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p {
         color: rgba(255, 255, 255, 0.6) !important;
-    }
-
-    [data-testid="stMetricLabel"] p {
-        color: rgba(255, 255, 255, 0.6) !important;
-    }
-
-    /* FILE UPLOADER TEXT */
-    /* FILE UPLOADER TEXT & ELEMENTS */
-    [data-testid="stFileUploader"] *,
-    [data-testid="stFileUploaderDropzone"] * {
-        color: rgba(255, 255, 255, 0.7) !important;
-    }
-
-        [data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
-        background: #0a1628 !important;
-        border: 1px dashed rgba(0, 255, 170, 0.3) !important;
-        border-radius: 12px !important;
-    }
-
-    [data-testid="stFileUploaderDropzone"] button {
-        background: linear-gradient(135deg, #00ffaa, #00ccff) !important;
-        color: #07121f !important;
-        font-weight: 700 !important;
-        border: none !important;
-        border-radius: 8px !important;
-        padding: 0.4rem 1.5rem !important;
-        min-width: 120px !important;
-    }
-    /* DOWNLOAD BUTTON TEXT */
-    .stDownloadButton > button {
-        color: white !important;
     }
 
     /* DIVIDER */
@@ -574,7 +599,7 @@ def main():
             AI-POWERED <span class="sql-text">SQL</span> GENERATOR
         </div>
         <div class="hero-sub">
-            Turn Business Logic into Optimized Snowflake SQL -Instantly 
+            Turn Business Logic into Optimized Snowflake SQL - Instantly 
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -611,34 +636,17 @@ def main():
 
     with col_upload:
         st.markdown("""
-        <div class="upload-section-title" style="font-size: 12px;">
-         <span class="icon">📁</span> Upload your requirements
-      </div>
-     """, unsafe_allow_html=True)
+        <div class="upload-section-title">
+            <span class="icon">📁</span> Upload your requirements
+        </div>
+        """, unsafe_allow_html=True)
 
         uploaded_file = st.file_uploader(
-    "Upload CSV or Excel file",
-    type=["xlsx", "xls", "csv"],
-    label_visibility="collapsed"
-)
+            "Upload CSV or Excel file",
+            type=["xlsx", "xls", "csv"],
+            label_visibility="collapsed"
+        )
 
-if uploaded_file:
-    st.markdown(
-        f"""
-        <div style="
-            margin-top:10px;
-            padding:12px;
-            border-radius:10px;
-            background:#10243a;
-            border:1px solid rgba(0,255,170,0.2);
-            color:white;
-            font-size:15px;
-        ">
-            📄 <b>{uploaded_file.name}</b>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
     # ---------------- FILE PROCESSING (below the split) ---------------- #
     if uploaded_file is not None:
         with st.spinner("Reading file..."):
@@ -662,9 +670,13 @@ if uploaded_file:
             with ThreadPoolExecutor(max_workers=8) as executor:
                 results = list(executor.map(process_row, [row for _, row in df.iterrows()]))
 
+            src_generated_sql = []
+            tgt_generated_sql = []
+
             for sql_src, sql_tgt in results:
-              src_generated_sql.append(sql_src)
-              tgt_generated_sql.append(sql_tgt)
+                src_generated_sql.append(sql_src)
+                tgt_generated_sql.append(sql_tgt)
+
             src_validated_sql = validation_sql(src_generated_sql)
             tgt_validated_sql = validation_sql(tgt_generated_sql)
             df["Generated_Src_SQL"] = src_validated_sql
@@ -680,8 +692,6 @@ if uploaded_file:
                 "text/csv"
             )
 
+
 if __name__ == "__main__":
     main()
-
-
-
