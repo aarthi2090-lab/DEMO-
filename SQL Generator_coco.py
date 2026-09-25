@@ -379,7 +379,7 @@ def main():
         padding: 2rem;
         border: 1px solid rgba(0, 255, 170, 0.08);
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        min-height: 500px;
+        min-height: 320px;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -402,7 +402,7 @@ def main():
 
     .image-card img {
         max-width: 100%;
-        max-height: 420x;
+        max-height: 280px;
         border-radius: 12px;
         object-fit: contain;
         filter: drop-shadow(0 0 20px rgba(0, 170, 255, 0.15));
@@ -585,7 +585,7 @@ def main():
 
     with col_img:
         # Load background image via base64
-        img_path = "gen_ai_sql_bg.jpg.png"
+        img_path = r"C:\Users\570666\OneDrive - Cognizant\Desktop\GEN AI POC\gen_ai_sql_bg.jpg.png"
         try:
             with open(img_path, "rb") as f:
                 encoded_img = base64.b64encode(f.read()).decode()
