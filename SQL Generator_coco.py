@@ -7,6 +7,7 @@ import streamlit as st
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import base64
+import os
 
 src_generated_sql = []
 tgt_generated_sql = []
@@ -18,7 +19,7 @@ CORTEX_MODEL_NAME = "mistral-7b"#"claude-3-7-sonnet"
 SF_ACCOUNT   = "RMHNYOB-COGNIZANT_INDIA"
 SF_USER      = "arthi.senthil@cognizant.com"
 #SF_PASSWORD  = ""
-SF_PROGRAMMATIC_ACCESS_TOKEN = "
+SF_PROGRAMMATIC_ACCESS_TOKEN = os.getenv("SF_PROGRAMMATIC_ACCESS_TOKEN")
 SF_WAREHOUSE = "SYSTEM$STREAMLIT_NOTEBOOK_WH"#"DEMO_WH"
 SF_DATABASE  = "ARTHI_SENTHIL_COGNIZANT_COM_DB"
 SF_SCHEMA    = "DBT_SCHEMA"
