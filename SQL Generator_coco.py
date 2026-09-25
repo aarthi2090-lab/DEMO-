@@ -494,7 +494,6 @@ def main():
     }
 
     /* SUCCESS / SPINNER */
-        /* SUCCESS / SPINNER */
     .stSuccess, [data-testid="stNotification"] {
         background: rgba(0, 255, 170, 0.08) !important;
         border: 1px solid rgba(0, 255, 170, 0.2) !important;
@@ -508,12 +507,12 @@ def main():
 
     /* GLOBAL TEXT VISIBILITY */
     .stApp {
-    color: rgba(255, 255, 255, 0.85);
+        color: rgba(255, 255, 255, 0.85);
     }
 
     .stApp p,
     .stApp label {
-    color: rgba(255, 255, 255, 0.85);
+        color: rgba(255, 255, 255, 0.85);
     }
 
     /* TOGGLE / CHECKBOX LABELS */
@@ -532,14 +531,13 @@ def main():
         color: rgba(255, 255, 255, 0.6) !important;
     }
 
-    /* FILE UPLOADER TEXT */
     /* FILE UPLOADER TEXT & ELEMENTS */
     [data-testid="stFileUploader"] *,
     [data-testid="stFileUploaderDropzone"] * {
         color: rgba(255, 255, 255, 0.7) !important;
     }
 
-        [data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
+    [data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
         background: #0a1628 !important;
         border: 1px dashed rgba(0, 255, 170, 0.3) !important;
         border-radius: 12px !important;
@@ -554,6 +552,7 @@ def main():
         padding: 0.4rem 1.5rem !important;
         min-width: 120px !important;
     }
+
     /* DOWNLOAD BUTTON TEXT */
     .stDownloadButton > button {
         color: white !important;
@@ -570,16 +569,14 @@ def main():
         max-width: 360px;
         opacity: 0.9;
     }
-    /* Strea*lit Cloud uploaded filename fix */*[data-testid="stFileUploaderFile"]** {
-color: white !important;
-* opacity: 1 !important;
-visib*lity: visible !important;
-}
- 
-[data*testid="stFileUploaderFile"] {
-*background: transparent !important*
-}
-</style>
+
+    /* Streamlit Cloud uploaded filename fix */
+    [data-testid="stFileUploaderFile"] {
+        color: white !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        background: transparent !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -590,7 +587,7 @@ visib*lity: visible !important;
             AI-POWERED <span class="sql-text">SQL</span> GENERATOR
         </div>
         <div class="hero-sub">
-            Turn Business Logic into Optimized Snowflake SQL -Instantly 
+            Turn Business Logic into Optimized Snowflake SQL - Instantly 
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -628,9 +625,9 @@ visib*lity: visible !important;
     with col_upload:
         st.markdown("""
         <div class="upload-section-title" style="font-size: 12px;">
-         <span class="icon">📁</span> Upload your requirements
-      </div>
-     """, unsafe_allow_html=True)
+            <span class="icon">📁</span> Upload your requirements
+        </div>
+        """, unsafe_allow_html=True)
 
         uploaded_file = st.file_uploader(
             "Upload CSV or Excel file",
@@ -661,9 +658,13 @@ visib*lity: visible !important;
             with ThreadPoolExecutor(max_workers=8) as executor:
                 results = list(executor.map(process_row, [row for _, row in df.iterrows()]))
 
+            src_generated_sql = []
+            tgt_generated_sql = []
+
             for sql_src, sql_tgt in results:
-              src_generated_sql.append(sql_src)
-              tgt_generated_sql.append(sql_tgt)
+                src_generated_sql.append(sql_src)
+                tgt_generated_sql.append(sql_tgt)
+
             src_validated_sql = validation_sql(src_generated_sql)
             tgt_validated_sql = validation_sql(tgt_generated_sql)
             df["Generated_Src_SQL"] = src_validated_sql
