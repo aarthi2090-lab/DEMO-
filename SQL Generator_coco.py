@@ -379,7 +379,7 @@ def main():
         padding: 2rem;
         border: 1px solid rgba(0, 255, 170, 0.08);
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        min-height: 320px;
+        min-height: 500px;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -402,7 +402,7 @@ def main():
 
     .image-card img {
         max-width: 100%;
-        max-height: 280px;
+        max-height: 420x;
         border-radius: 12px;
         object-fit: contain;
         filter: drop-shadow(0 0 20px rgba(0, 170, 255, 0.15));
