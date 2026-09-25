@@ -1,34 +1,43 @@
-#coco
 import json
 import re
 import pandas as pd
 import snowflake.connector
-from sqlalchemy import create_engine, text
 import streamlit as st
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import base64
 import os
+from google import genai
+
+# -----------------------------
+# Gemini API Configuration
+# -----------------------------
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Using gemini-2.5-flash for fast and accurate code/SQL generation
+GEMINI_MODEL_NAME = "gemini-2.5-flash" 
+
+if not GEMINI_API_KEY:
+    st.error("GEMINI_API_KEY environment variable is not set. Please set it before running.")
+
+# Initialize the Gemini client
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 src_generated_sql = []
 tgt_generated_sql = []
+
 # -----------------------------
 # Fixed Snowflake connection
 # -----------------------------
-CORTEX_MODEL_NAME = "claude-3-7-sonnet"
-
 SF_ACCOUNT   = "RMHNYOB-COGNIZANT_INDIA"
 SF_USER      = "arthi.senthil@cognizant.com"
-#SF_PASSWORD  = ""
 SF_PROGRAMMATIC_ACCESS_TOKEN = os.getenv("SF_PROGRAMMATIC_ACCESS_TOKEN")
-SF_WAREHOUSE = "SYSTEM$STREAMLIT_NOTEBOOK_WH"#"DEMO_WH"
+SF_WAREHOUSE = "SYSTEM$STREAMLIT_NOTEBOOK_WH"
 SF_DATABASE  = "ARTHI_SENTHIL_COGNIZANT_COM_DB"
 SF_SCHEMA    = "DBT_SCHEMA"
 
 conn = snowflake.connector.connect(
     account=SF_ACCOUNT,
     user=SF_USER,
-    #password=SF_PASSWORD,
     password=SF_PROGRAMMATIC_ACCESS_TOKEN,
     warehouse=SF_WAREHOUSE,
     database=SF_DATABASE,
@@ -45,10 +54,6 @@ def sql_read(sql, params=None):
 # 1) Schema allow-list (Retrieve)
 # -----------------------------
 def fetch_schema_allowlist_json() -> str:
-    """
-    Returns JSON string mapping table -> [columns] for DBT_POC.PUBLIC.
-    Uses Snowflake syntax: ARRAY_AGG ... WITHIN GROUP (ORDER BY ...).
-    """
     q = f"""
     WITH cols AS (
       SELECT
@@ -86,10 +91,6 @@ def fetch_schema_ddl() -> str:
     return sql_read(q).iloc[0, 0]
 
 def refresh_schema_chunks(max_len: int = 3000):
-    """
-    Pull live schema DDL, split into CREATE TABLE blocks, sub-chunk if long,
-    and store in DDL_CHUNKS.
-    """
     ensure_chunks_table()
     full_ddl = fetch_schema_ddl()
 
@@ -113,33 +114,26 @@ def refresh_schema_chunks(max_len: int = 3000):
             cur.execute(ins, r)
 
 # -----------------------------
-# 3) Simple keyword-based retrieval (Retrieve w/o embeddings)
+# 3) Keyword-based retrieval
 # -----------------------------
 def tokenize(text: str):
     return [t for t in re.findall(r"[A-Za-z0-9_]+", text.lower()) if len(t) > 2]
 
 def retrieve_relevant_ddl_chunks(logic_text: str, k: int = 8) -> str:
-    """
-    Retrieve top-K DDL chunks by simple keyword overlap scoring with the logic text.
-    Avoids use of SNOWFLAKE.CORTEX.EMBED_TEXT (not available in this account).
-    """
-    # Fetch all chunks
     df = sql_read(f"SELECT OBJECT_NAME, CHUNK_INDEX, CHUNK_TEXT FROM {SF_DATABASE}.{SF_SCHEMA}.DDL_CHUNKS;")
     if df.empty:
         return ""
     logic_tokens = tokenize(logic_text)
-     # If no tokens, just return the first K chunks (stable)
     if not logic_tokens:
         top = df.sort_values(["OBJECT_NAME", "CHUNK_INDEX"]).head(k)
         return "\n\n".join(top["CHUNK_TEXT"].tolist())
-# Score chunks by token overlap
+
     scores = []
     for _, row in df.iterrows():
         chunk = row["CHUNK_TEXT"] or ""
         chunk_lower = chunk.lower()
         score = 0
         for tok in logic_tokens:
-            # Score chunks by token overlap
             if re.search(rf"\b{re.escape(tok)}\b", chunk_lower):
                 score += 3
             elif tok in chunk_lower:
@@ -151,12 +145,9 @@ def retrieve_relevant_ddl_chunks(logic_text: str, k: int = 8) -> str:
     return "\n\n".join(top["CHUNK_TEXT"].tolist())
 
 # -----------------------------
-# 4) Optional: narrow table subset via LLM (Retrieve)
+# 4) Narrow table subset via Gemini API
 # -----------------------------
 def select_relevant_tables(logic_text: str, schema_json_str: str):
-    """
-    Ask Cortex COMPLETE to pick a minimal subset of tables from the allow-list.
-    """
     prompt = f"""
 You are an expert Snowflake SQL assistant.
 
@@ -175,18 +166,20 @@ Rules:
 - If unsure, prefer fewer tables.
 - Output must be a valid JSON array, e.g. ["FACT_ORDERS","FACT_ORDER_ITEMS"].
 """
-    with conn.cursor() as cur:
-        cur.execute("SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, %s)", (CORTEX_MODEL_NAME, prompt))
-        raw = (cur.fetchone()[0] or "").strip()
-    raw = raw.removeprefix("```json").removeprefix("```").strip()
     try:
+        response = ai_client.models.generate_content(
+            model=GEMINI_MODEL_NAME,
+            contents=prompt,
+        )
+        raw = (response.text or "").strip()
+        raw = raw.removeprefix("```json").removeprefix("```").strip()
         arr = json.loads(raw)
         return arr if isinstance(arr, list) else []
     except Exception:
         return []
 
 # -----------------------------
-# 5) Generation (Augment + Generate)
+# 5) Generation via Gemini API
 # -----------------------------
 def sanitize_sql_output(text: str) -> str:
     sql = (text or "").strip()
@@ -196,11 +189,7 @@ def sanitize_sql_output(text: str) -> str:
     return sql
 
 def converting_english_sql(logic: str, top_k_chunks: int = 8) -> str:
-    """
-    Full RAG: allow-list + top-K DDL chunks (keyword retrieval) -> grounded prompt -> SQL via Cortex COMPLETE.
-    """
     schema_json = fetch_schema_allowlist_json()
-    # Narrow to relevant tables to keep prompt compact
 
     try:
         tables = select_relevant_tables(logic, schema_json)
@@ -235,15 +224,20 @@ Hard rules:
 - Do NOT use any table or column not listed in the JSON allow-list.
 - Fully qualify all tables with {SF_SCHEMA}.<TABLE>.
 - Use Snowflake SQL syntax.
--Use ONLY the columns explicitly provided; do NOT add extra columns.
--Ensure source and target have exact 1:1 column mapping with equal count and order
+- Use ONLY the columns explicitly provided; do NOT add extra columns.
+- Ensure source and target have exact 1:1 column mapping with equal count and order
 - Output ONLY the SQL (no explanations, no code fences).
--Table aliases MUST follow: t1, t2, t3, ...
+- Table aliases MUST follow: t1, t2, t3, ...
 - End with a semicolon.
 """
-    with conn.cursor() as cur:
-        cur.execute("SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, %s)", (CORTEX_MODEL_NAME, prompt))
-        out = cur.fetchone()[0] or ""
+    try:
+        response = ai_client.models.generate_content(
+            model=GEMINI_MODEL_NAME,
+            contents=prompt,
+        )
+        out = response.text or ""
+    except Exception as e:
+        out = f"-- Error generating SQL via Gemini: {str(e)}"
 
     return sanitize_sql_output(out)
 
@@ -254,7 +248,7 @@ def validation_sql(generated_sql_list):
         sql_clean = sql.replace("```sql", "").replace("```", "").strip()
         try:
             _ = sql_read(sql_clean)
-            validated.append(sql)# keep original in output
+            validated.append(sql)
         except Exception as e:
             validated.append(f"-- INVALID SQL\n-- {str(e)}\n{sql}")
     return validated
@@ -267,6 +261,7 @@ def process_row(row):
     sql_tgt = converting_english_sql(tgt_logic, top_k_chunks=8)
 
     return sql_src, sql_tgt
+
 def main():
     refresh_schema_chunks()
 
@@ -283,6 +278,7 @@ def main():
 
     .stApp {
         background: linear-gradient(135deg, #020b1a 0%, #0a1628 40%, #0d1f35 70%, #081422 100%);
+        color: rgba(255, 255, 255, 0.85);
     }
 
     .block-container {
@@ -410,24 +406,24 @@ def main():
 
     .upload-section-title {
         font-family: 'Inter', sans-serif;
-        font-size: 20px;
+        font-size: 14px;
         font-weight: 700;
         color: #ffffff;
-        margin-bottom: 1rem;
+        margin-bottom: 0.8rem;
         display: flex;
         align-items: center;
         gap: 8px;
     }
 
     .upload-section-title .icon {
-        font-size: 22px;
+        font-size: 18px;
     }
 
     /* FILE UPLOADER STYLING */
     [data-testid="stFileUploader"] {
-        background: rgba(255,255,255,0.03);
+        background: rgba(255, 255, 255, 0.02);
         border-radius: 12px;
-        padding: 1rem;
+        padding: 0.8rem;
         border: 1px dashed rgba(0, 255, 170, 0.2);
     }
 
@@ -436,8 +432,69 @@ def main():
         box-shadow: 0 0 20px rgba(0, 255, 170, 0.05);
     }
 
-    /* BUTTONS */
-    .stButton > button {
+    [data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
+        background: #0a1628 !important;
+        border: 1px dashed rgba(0, 255, 170, 0.3) !important;
+        border-radius: 12px !important;
+    }
+
+    [data-testid="stFileUploaderDropzone"] button {
+        background: linear-gradient(135deg, #00ffaa, #00ccff) !important;
+        color: #07121f !important;
+        font-weight: 700 !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 0.4rem 1.2rem !important;
+        min-width: 120px !important;
+        box-shadow: none !important;
+        height: auto !important;
+    }
+
+    /* UPLOADED FILE ITEM STYLING */
+    [data-testid="stFileUploaderFile"] {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: #ffffff !important;
+        padding: 0.5rem 0.2rem !important;
+    }
+
+    [data-testid="stFileUploaderFile"] * {
+        background: transparent !important;
+        color: #ffffff !important;
+    }
+
+    [data-testid="stFileUploaderFileData"] {
+        color: #ffffff !important;
+        font-size: 14px !important;
+    }
+
+    /* SVG Icons styling inside File Uploader */
+    [data-testid="stFileUploaderFile"] svg {
+        fill: #ffffff !important;
+        color: #ffffff !important;
+        stroke: #ffffff !important;
+        filter: none !important;
+    }
+
+    [data-testid="stFileUploaderFile"] button {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: #ffffff !important;
+        height: auto !important;
+        width: auto !important;
+        padding: 0 !important;
+    }
+
+    [data-testid="stFileUploaderFile"] button:hover {
+        background: transparent !important;
+        opacity: 0.8;
+    }
+
+    /* ACTION BUTTONS */
+    .stMainBlockContainer > .stButton > button,
+    .stMainBlockContainer .stButton > button:not([data-testid="stFileUploaderDropzone"] button) {
         background: linear-gradient(135deg, #00ffaa, #00ccff);
         color: #07121f;
         font-family: 'Inter', sans-serif;
@@ -452,14 +509,14 @@ def main():
         transition: all 0.3s ease;
     }
 
-    .stButton > button:hover {
+    .stMainBlockContainer .stButton > button:hover:not([data-testid="stFileUploaderDropzone"] button) {
         box-shadow: 0 0 30px rgba(0, 255, 170, 0.4), 0 0 60px rgba(0, 255, 170, 0.15);
         transform: translateY(-1px);
     }
 
     .stDownloadButton > button {
-        background: linear-gradient(135deg, #00aaff, #0077ff);
-        color: white;
+        background: linear-gradient(135deg, #00aaff, #0077ff) !important;
+        color: white !important;
         font-family: 'Inter', sans-serif;
         font-weight: 700;
         border-radius: 12px;
@@ -494,7 +551,6 @@ def main():
     }
 
     /* SUCCESS / SPINNER */
-        /* SUCCESS / SPINNER */
     .stSuccess, [data-testid="stNotification"] {
         background: rgba(0, 255, 170, 0.08) !important;
         border: 1px solid rgba(0, 255, 170, 0.2) !important;
@@ -506,11 +562,6 @@ def main():
         color: #00ffaa !important;
     }
 
-    /* GLOBAL TEXT VISIBILITY */
-    .stApp, .stApp p, .stApp span, .stApp label, .stApp div {
-        color: rgba(255, 255, 255, 0.85);
-    }
-
     /* TOGGLE / CHECKBOX LABELS */
     [data-testid="stCheckbox"] label span,
     .stToggle label span,
@@ -519,39 +570,8 @@ def main():
     }
 
     /* METRIC LABELS */
-    [data-testid="stMetricLabel"] {
+    [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p {
         color: rgba(255, 255, 255, 0.6) !important;
-    }
-
-    [data-testid="stMetricLabel"] p {
-        color: rgba(255, 255, 255, 0.6) !important;
-    }
-
-    /* FILE UPLOADER TEXT */
-    /* FILE UPLOADER TEXT & ELEMENTS */
-    [data-testid="stFileUploader"] *,
-    [data-testid="stFileUploaderDropzone"] * {
-        color: rgba(255, 255, 255, 0.7) !important;
-    }
-
-        [data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
-        background: #0a1628 !important;
-        border: 1px dashed rgba(0, 255, 170, 0.3) !important;
-        border-radius: 12px !important;
-    }
-
-    [data-testid="stFileUploaderDropzone"] button {
-        background: linear-gradient(135deg, #00ffaa, #00ccff) !important;
-        color: #07121f !important;
-        font-weight: 700 !important;
-        border: none !important;
-        border-radius: 8px !important;
-        padding: 0.4rem 1.5rem !important;
-        min-width: 120px !important;
-    }
-    /* DOWNLOAD BUTTON TEXT */
-    .stDownloadButton > button {
-        color: white !important;
     }
 
     /* DIVIDER */
@@ -575,7 +595,7 @@ def main():
             AI-POWERED <span class="sql-text">SQL</span> GENERATOR
         </div>
         <div class="hero-sub">
-            Turn Business Logic into Optimized Snowflake SQL -Instantly 
+            Turn Business Logic into Optimized Snowflake SQL - Instantly 
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -584,7 +604,6 @@ def main():
     col_img, col_upload = st.columns([1, 1], gap="large")
 
     with col_img:
-        # Load background image via base64
         img_path = "gen_ai_sql_bg.jpg.png"
         try:
             with open(img_path, "rb") as f:
@@ -601,7 +620,7 @@ def main():
                     <rect width="400" height="300" rx="16" fill="#0a1628"/>
                     <text x="200" y="130" text-anchor="middle" font-family="Orbitron,monospace" font-size="28" font-weight="900" fill="#00ffaa" style="filter:url(#glow)">GEN AI</text>
                     <text x="200" y="170" text-anchor="middle" font-family="Orbitron,monospace" font-size="28" font-weight="900" fill="#00ccff" style="filter:url(#glow2)">SQL</text>
-                    <text x="200" y="210" text-anchor="middle" font-family="Inter,sans-serif" font-size="12" fill="rgba(255,255,255,0.4)">Powered by Snowflake Cortex</text>
+                    <text x="200" y="210" text-anchor="middle" font-family="Inter,sans-serif" font-size="12" fill="rgba(255,255,255,0.4)">Powered by Gemini API</text>
                     <defs>
                         <filter id="glow"><feGaussianBlur stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
                         <filter id="glow2"><feGaussianBlur stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
@@ -612,10 +631,10 @@ def main():
 
     with col_upload:
         st.markdown("""
-        <div class="upload-section-title" style="font-size: 12px;">
-         <span class="icon">📁</span> Upload your requirements
-      </div>
-     """, unsafe_allow_html=True)
+        <div class="upload-section-title">
+            <span class="icon">📁</span> Upload your requirements
+        </div>
+        """, unsafe_allow_html=True)
 
         uploaded_file = st.file_uploader(
             "Upload CSV or Excel file",
@@ -646,9 +665,13 @@ def main():
             with ThreadPoolExecutor(max_workers=8) as executor:
                 results = list(executor.map(process_row, [row for _, row in df.iterrows()]))
 
+            src_generated_sql = []
+            tgt_generated_sql = []
+
             for sql_src, sql_tgt in results:
-              src_generated_sql.append(sql_src)
-              tgt_generated_sql.append(sql_tgt)
+                src_generated_sql.append(sql_src)
+                tgt_generated_sql.append(sql_tgt)
+
             src_validated_sql = validation_sql(src_generated_sql)
             tgt_validated_sql = validation_sql(tgt_generated_sql)
             df["Generated_Src_SQL"] = src_validated_sql
@@ -663,6 +686,7 @@ def main():
                 "output_with_sql.csv",
                 "text/csv"
             )
+
 
 if __name__ == "__main__":
     main()
