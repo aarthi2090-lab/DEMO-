@@ -440,21 +440,12 @@ def main():
 
     [data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
         background: #0a1628 !important;
-        border: 1px dashed rgba(0, 255, 170, 0.3) !important;
+        border: 1px dashed rgba(0, 255, 170, 0.8) !important;
         border-radius: 12px !important;
     }
 
-    [data-testid="stFileUploaderDropzone"] button {
-        background: linear-gradient(135deg, #00ffaa, #00ccff) !important;
-        color: #07121f !important;
-        font-weight: 700 !important;
-        border: none !important;
-        border-radius: 8px !important;
-        padding: 0.4rem 1.2rem !important;
-        min-width: 120px !important;
-        box-shadow: none !important;
-        height: auto !important;
-    }
+    
+    
 
     /* --- UPLOADED FILE CARD OVERRIDES --- */
     [data-testid="stFileUploaderFile"] {
