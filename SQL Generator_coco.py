@@ -530,7 +530,7 @@ def main():
     /* FILE UPLOADER TEXT & ELEMENTS */
     [data-testid="stFileUploader"] *,
     [data-testid="stFileUploaderDropzone"] * {
-        color: rgba(255, 255, 255, 0.7) !important;
+        color: #000000 !important;
     }
 
         [data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
