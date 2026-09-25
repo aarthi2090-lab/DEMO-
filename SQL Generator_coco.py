@@ -537,7 +537,8 @@ def main():
     }
     /* Uploaded filename only */
     [data-testid="stFileUploaderFile"] * {
-       color: #000000 !important;
+       color: red !important;
+       font-weight: bold !important;
     }
 
         [data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
