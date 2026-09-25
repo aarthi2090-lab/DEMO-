@@ -14,7 +14,7 @@ tgt_generated_sql = []
 # -----------------------------
 # Fixed Snowflake connection
 # -----------------------------
-CORTEX_MODEL_NAME = "mistral-7b"#"claude-3-7-sonnet"
+CORTEX_MODEL_NAME = "claude-3-7-sonnet"
 
 SF_ACCOUNT   = "RMHNYOB-COGNIZANT_INDIA"
 SF_USER      = "arthi.senthil@cognizant.com"
@@ -585,7 +585,7 @@ def main():
 
     with col_img:
         # Load background image via base64
-        img_path = r"C:\Users\570666\OneDrive - Cognizant\Desktop\GEN AI POC\gen_ai_sql_bg.jpg.png"
+        img_path = "gen_ai_sql_bg.jpg.png"
         try:
             with open(img_path, "rb") as f:
                 encoded_img = base64.b64encode(f.read()).decode()
