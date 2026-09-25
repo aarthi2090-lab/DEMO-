@@ -266,7 +266,7 @@ def process_row(row):
     sql_tgt = converting_english_sql(tgt_logic, top_k_chunks=8)
 
     return sql_src, sql_tgt
-    def main():
+def main():
     refresh_schema_chunks()
 
     st.set_page_config(
