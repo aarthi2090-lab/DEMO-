@@ -528,9 +528,16 @@ def main():
 
     /* FILE UPLOADER TEXT */
     /* FILE UPLOADER TEXT & ELEMENTS */
-    [data-testid="stFileUploader"] *,
-    [data-testid="stFileUploaderDropzone"] * {
-        color: #000000 !important;
+    /* Upload area text */
+    [data-testid="stFileUploaderDropzone"] span,
+    [data-testid="stFileUploaderDropzone"] small,
+    [data-testid="stFileUploaderDropzone"] p {
+       color: #ffffff !important;
+}
+    }
+    /* Uploaded filename only */
+    [data-testid="stFileUploaderFile"] * {
+       color: #000000 !important;
     }
 
         [data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
