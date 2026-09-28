@@ -8,6 +8,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import base64
 import anthropic
+import os
 
 src_generated_sql = []
 tgt_generated_sql = []
