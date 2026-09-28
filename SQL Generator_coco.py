@@ -416,7 +416,7 @@ def main():
     col_img, col_upload = st.columns([1, 1], gap="large")
 
     with col_img:
-        img_path = r"C:\Users\570666\OneDrive - Cognizant\Desktop\GEN AI POC\gen_ai_sql_bg.jpg.png"
+        img_path = r"gen_ai_sql_bg.jpg.png"
         try:
             with open(img_path, "rb") as f:
                 encoded_img = base64.b64encode(f.read()).decode()
