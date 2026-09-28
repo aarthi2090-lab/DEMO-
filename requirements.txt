@@ -4,3 +4,4 @@ snowflake-connector-python
 sqlalchemy
 openpyxl
 google-genai
+anthropic
