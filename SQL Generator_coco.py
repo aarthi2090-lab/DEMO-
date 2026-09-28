@@ -7,20 +7,20 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import base64
 import os
-from google import genai
+import anthropic
 
 # -----------------------------
-# Gemini API Configuration
+# Claude API Configuration
 # -----------------------------
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-# Using gemini-2.5-flash for fast and accurate code/SQL generation
-GEMINI_MODEL_NAME = "gemini-3.8-flash" 
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+# Recommended model for code/SQL generation
+CLAUDE_MODEL_NAME = "claude-sonnet-5" 
 
-if not GEMINI_API_KEY:
-    st.error("GEMINI_API_KEY environment variable is not set. Please set it before running.")
+if not ANTHROPIC_API_KEY:
+    st.error("ANTHROPIC_API_KEY environment variable is not set. Please set it before running.")
 
-# Initialize the Gemini client
-ai_client = genai.Client(api_key=GEMINI_API_KEY)
+# Initialize the Anthropic client
+ai_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 src_generated_sql = []
 tgt_generated_sql = []
@@ -145,11 +145,10 @@ def retrieve_relevant_ddl_chunks(logic_text: str, k: int = 8) -> str:
     return "\n\n".join(top["CHUNK_TEXT"].tolist())
 
 # -----------------------------
-# 4) Narrow table subset via Gemini API
+# 4) Narrow table subset via Claude API
 # -----------------------------
 def select_relevant_tables(logic_text: str, schema_json_str: str):
-    prompt = f"""
-You are an expert Snowflake SQL assistant.
+    prompt = f"""You are an expert Snowflake SQL assistant.
 
 Given the business logic and this schema allow-list JSON (table -> columns),
 return a JSON array of ONLY the table names that are relevant to the logic.
@@ -164,14 +163,15 @@ Business logic:
 Rules:
 - Include only necessary tables.
 - If unsure, prefer fewer tables.
-- Output must be a valid JSON array, e.g. ["FACT_ORDERS","FACT_ORDER_ITEMS"].
-"""
+- Output must be a valid JSON array, e.g. ["FACT_ORDERS","FACT_ORDER_ITEMS"]."""
+
     try:
-        response = ai_client.models.generate_content(
-            model=GEMINI_MODEL_NAME,
-            contents=prompt,
+        response = ai_client.messages.create(
+            model=CLAUDE_MODEL_NAME,
+            max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}],
         )
-        raw = (response.text or "").strip()
+        raw = (response.content[0].text or "").strip()
         raw = raw.removeprefix("```json").removeprefix("```").strip()
         arr = json.loads(raw)
         return arr if isinstance(arr, list) else []
@@ -179,7 +179,7 @@ Rules:
         return []
 
 # -----------------------------
-# 5) Generation via Gemini API
+# 5) Generation via Claude API
 # -----------------------------
 def sanitize_sql_output(text: str) -> str:
     sql = (text or "").strip()
@@ -205,8 +205,7 @@ def converting_english_sql(logic: str, top_k_chunks: int = 8) -> str:
 
     ddl_context = retrieve_relevant_ddl_chunks(logic, k=top_k_chunks)
 
-    prompt = f"""
-You are an expert Snowflake SQL developer.
+    prompt = f"""You are an expert Snowflake SQL developer.
 
 Task:
 Convert the following business logic into a single, valid Snowflake SQL statement.
@@ -225,19 +224,20 @@ Hard rules:
 - Fully qualify all tables with {SF_SCHEMA}.<TABLE>.
 - Use Snowflake SQL syntax.
 - Use ONLY the columns explicitly provided; do NOT add extra columns.
-- Ensure source and target have exact 1:1 column mapping with equal count and order
+- Ensure source and target have exact 1:1 column mapping with equal count and order.
 - Output ONLY the SQL (no explanations, no code fences).
 - Table aliases MUST follow: t1, t2, t3, ...
-- End with a semicolon.
-"""
+- End with a semicolon."""
+
     try:
-        response = ai_client.models.generate_content(
-            model=GEMINI_MODEL_NAME,
-            contents=prompt,
+        response = ai_client.messages.create(
+            model=CLAUDE_MODEL_NAME,
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}],
         )
-        out = response.text or ""
+        out = response.content[0].text or ""
     except Exception as e:
-        out = f"-- Error generating SQL via Gemini: {str(e)}"
+        out = f"-- Error generating SQL via Claude: {str(e)}"
 
     return sanitize_sql_output(out)
 
@@ -620,7 +620,7 @@ def main():
                     <rect width="400" height="300" rx="16" fill="#0a1628"/>
                     <text x="200" y="130" text-anchor="middle" font-family="Orbitron,monospace" font-size="28" font-weight="900" fill="#00ffaa" style="filter:url(#glow)">GEN AI</text>
                     <text x="200" y="170" text-anchor="middle" font-family="Orbitron,monospace" font-size="28" font-weight="900" fill="#00ccff" style="filter:url(#glow2)">SQL</text>
-                    <text x="200" y="210" text-anchor="middle" font-family="Inter,sans-serif" font-size="12" fill="rgba(255,255,255,0.4)">Powered by Gemini API</text>
+                    <text x="200" y="210" text-anchor="middle" font-family="Inter,sans-serif" font-size="12" fill="rgba(255,255,255,0.4)">Powered by Claude API</text>
                     <defs>
                         <filter id="glow"><feGaussianBlur stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
                         <filter id="glow2"><feGaussianBlur stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
