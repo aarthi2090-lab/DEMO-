@@ -13,8 +13,8 @@ import anthropic
 # Claude API Configuration
 # -----------------------------
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-# Recommended model for code/SQL generation
-CLAUDE_MODEL_NAME = "claude-sonnet-5" 
+# Valid Anthropic Claude model name
+CLAUDE_MODEL_NAME = "claude-3-5-sonnet-latest" 
 
 if not ANTHROPIC_API_KEY:
     st.error("ANTHROPIC_API_KEY environment variable is not set. Please set it before running.")
@@ -45,10 +45,19 @@ conn = snowflake.connector.connect(
 )
 
 # -----------------------------
-# Helpers for SQL reads
+# Helpers for SQL reads & Claude response parsing
 # -----------------------------
 def sql_read(sql, params=None):
     return pd.read_sql(sql, conn, params=params)
+
+def extract_text_from_response(response) -> str:
+    """Extract text safely from Anthropic API response content blocks, ignoring ThinkingBlocks."""
+    text_parts = []
+    if hasattr(response, 'content') and isinstance(response.content, list):
+        for block in response.content:
+            if hasattr(block, 'text') and block.text:
+                text_parts.append(block.text)
+    return "".join(text_parts)
 
 # -----------------------------
 # 1) Schema allow-list (Retrieve)
@@ -171,7 +180,7 @@ Rules:
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = (response.content[0].text or "").strip()
+        raw = extract_text_from_response(response).strip()
         raw = raw.removeprefix("```json").removeprefix("```").strip()
         arr = json.loads(raw)
         return arr if isinstance(arr, list) else []
@@ -235,7 +244,7 @@ Hard rules:
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )
-        out = response.content[0].text or ""
+        out = extract_text_from_response(response)
     except Exception as e:
         out = f"-- Error generating SQL via Claude: {str(e)}"
 
