@@ -1,6 +1,7 @@
 #coco
 import json
 import re
+import threading
 import pandas as pd
 import snowflake.connector
 from sqlalchemy import create_engine, text
@@ -9,14 +10,15 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import base64
 import os
-
+ 
 src_generated_sql = []
 tgt_generated_sql = []
+ 
 # -----------------------------
-# Fixed Snowflake connection
+# Fixed Snowflake connection config
 # -----------------------------
 CORTEX_MODEL_NAME = "claude-sonnet-5"
-
+ 
 SF_ACCOUNT   = "RMHNYOB-COGNIZANT_INDIA"
 SF_USER      = "arthi.senthil@cognizant.com"
 #SF_PASSWORD  = ""
@@ -24,23 +26,57 @@ SF_PROGRAMMATIC_ACCESS_TOKEN = os.getenv("SF_PROGRAMMATIC_ACCESS_TOKEN")
 SF_WAREHOUSE = "SYSTEM$STREAMLIT_NOTEBOOK_WH"#"DEMO_WH"
 SF_DATABASE  = "ARTHI_SENTHIL_COGNIZANT_COM_DB"
 SF_SCHEMA    = "DBT_SCHEMA"
-
-conn = snowflake.connector.connect(
-    account=SF_ACCOUNT,
-    user=SF_USER,
-    #password=SF_PASSWORD,
-    password=SF_PROGRAMMATIC_ACCESS_TOKEN,
-    warehouse=SF_WAREHOUSE,
-    database=SF_DATABASE,
-    schema=SF_SCHEMA,
-)
-
+ 
+# Cortex generation controls
+CORTEX_MAX_TOKENS = 2048
+CORTEX_TEMPERATURE = 0.0
+ 
+# -----------------------------
+# BUG FIX #1: Thread-safe connections
+# -----------------------------
+# Problem (original code): a single global `conn` object was created once and
+# shared across every worker thread in the ThreadPoolExecutor. The Snowflake
+# connector is not safe to drive concurrently from multiple threads on one
+# connection/cursor session -- overlapping execute()/fetchone() calls can
+# return partial or empty responses to the wrong thread, which is exactly
+# what produced the truncated SQL ("...GROUP;") and empty SQL (";") errors.
+#
+# Fix: give every thread its own private Snowflake connection via
+# threading.local(). Each thread lazily opens its own connection the first
+# time it needs one, and reuses it for the rest of its work. No connection
+# object is ever touched by more than one thread.
+_thread_local = threading.local()
+ 
+def get_connection():
+    conn = getattr(_thread_local, "conn", None)
+    if conn is None or conn.is_closed():
+        conn = snowflake.connector.connect(
+            account=SF_ACCOUNT,
+            user=SF_USER,
+            password=SF_PROGRAMMATIC_ACCESS_TOKEN,
+            warehouse=SF_WAREHOUSE,
+            database=SF_DATABASE,
+            schema=SF_SCHEMA,
+        )
+        _thread_local.conn = conn
+    return conn
+ 
+def close_thread_connection():
+    conn = getattr(_thread_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        _thread_local.conn = None
+ 
 # -----------------------------
 # Helpers for SQL reads
 # -----------------------------
 def sql_read(sql, params=None):
+    conn = get_connection()
     return pd.read_sql(sql, conn, params=params)
-
+ 
 # -----------------------------
 # 1) Schema allow-list (Retrieve)
 # -----------------------------
@@ -66,7 +102,7 @@ def fetch_schema_allowlist_json() -> str:
     if isinstance(schema_obj, str):
         schema_obj = json.loads(schema_obj)
     return json.dumps(schema_obj)
-
+ 
 # -----------------------------
 # 2) DDL chunking (Retrieve)
 # -----------------------------
@@ -78,13 +114,13 @@ def ensure_chunks_table():
       CHUNK_TEXT  STRING
     );
     """
-    with conn.cursor() as cur:
+    with get_connection().cursor() as cur:
         cur.execute(ddl)
-
+ 
 def fetch_schema_ddl() -> str:
     q = f"SELECT GET_DDL('SCHEMA', '{SF_DATABASE}.{SF_SCHEMA}', TRUE) AS DDL;"
     return sql_read(q).iloc[0, 0]
-
+ 
 def refresh_schema_chunks(max_len: int = 3000):
     """
     Pull live schema DDL, split into CREATE TABLE blocks, sub-chunk if long,
@@ -92,7 +128,7 @@ def refresh_schema_chunks(max_len: int = 3000):
     """
     ensure_chunks_table()
     full_ddl = fetch_schema_ddl()
-
+ 
     blocks = re.split(r"(?=CREATE\s+(?:OR\s+REPLACE\s+)?TABLE\s+)", full_ddl, flags=re.IGNORECASE)
     rows = []
     for b in blocks:
@@ -105,51 +141,49 @@ def refresh_schema_chunks(max_len: int = 3000):
         object_name = m.group(1)
         for i in range(0, len(b), max_len):
             rows.append((object_name, i // max_len, b[i:i+max_len]))
-
+ 
+    conn = get_connection()
     with conn.cursor() as cur:
         cur.execute(f"TRUNCATE TABLE {SF_DATABASE}.{SF_SCHEMA}.DDL_CHUNKS")
         ins = f"INSERT INTO {SF_DATABASE}.{SF_SCHEMA}.DDL_CHUNKS (OBJECT_NAME, CHUNK_INDEX, CHUNK_TEXT) VALUES (%s, %s, %s)"
         for r in rows:
             cur.execute(ins, r)
-
+ 
 # -----------------------------
 # 3) Simple keyword-based retrieval (Retrieve w/o embeddings)
 # -----------------------------
 def tokenize(text: str):
     return [t for t in re.findall(r"[A-Za-z0-9_]+", text.lower()) if len(t) > 2]
-
+ 
 def retrieve_relevant_ddl_chunks(logic_text: str, k: int = 8) -> str:
     """
     Retrieve top-K DDL chunks by simple keyword overlap scoring with the logic text.
     Avoids use of SNOWFLAKE.CORTEX.EMBED_TEXT (not available in this account).
     """
-    # Fetch all chunks
     df = sql_read(f"SELECT OBJECT_NAME, CHUNK_INDEX, CHUNK_TEXT FROM {SF_DATABASE}.{SF_SCHEMA}.DDL_CHUNKS;")
     if df.empty:
         return ""
     logic_tokens = tokenize(logic_text)
-     # If no tokens, just return the first K chunks (stable)
     if not logic_tokens:
         top = df.sort_values(["OBJECT_NAME", "CHUNK_INDEX"]).head(k)
         return "\n\n".join(top["CHUNK_TEXT"].tolist())
-# Score chunks by token overlap
+ 
     scores = []
     for _, row in df.iterrows():
         chunk = row["CHUNK_TEXT"] or ""
         chunk_lower = chunk.lower()
         score = 0
         for tok in logic_tokens:
-            # Score chunks by token overlap
             if re.search(rf"\b{re.escape(tok)}\b", chunk_lower):
                 score += 3
             elif tok in chunk_lower:
                 score += 1
         scores.append(score)
-
+ 
     df["SCORE"] = scores
     top = df.sort_values(["SCORE", "OBJECT_NAME", "CHUNK_INDEX"], ascending=[False, True, True]).head(k)
     return "\n\n".join(top["CHUNK_TEXT"].tolist())
-
+ 
 # -----------------------------
 # 4) Optional: narrow table subset via LLM (Retrieve)
 # -----------------------------
@@ -159,78 +193,145 @@ def select_relevant_tables(logic_text: str, schema_json_str: str):
     """
     prompt = f"""
 You are an expert Snowflake SQL assistant.
-
+ 
 Given the business logic and this schema allow-list JSON (table -> columns),
 return a JSON array of ONLY the table names that are relevant to the logic.
 No extra text; just a JSON array.
-
+ 
 Schema allow-list JSON:
 {schema_json_str}
-
+ 
 Business logic:
 {logic_text}
-
+ 
 Rules:
 - Include only necessary tables.
 - If unsure, prefer fewer tables.
 - Output must be a valid JSON array, e.g. ["FACT_ORDERS","FACT_ORDER_ITEMS"].
 """
-    with conn.cursor() as cur:
-        cur.execute("SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, %s)", (CORTEX_MODEL_NAME, prompt))
-        raw = (cur.fetchone()[0] or "").strip()
+    raw = call_cortex_complete(prompt, max_tokens=512, temperature=0.0)
     raw = raw.removeprefix("```json").removeprefix("```").strip()
     try:
         arr = json.loads(raw)
         return arr if isinstance(arr, list) else []
     except Exception:
         return []
-
+ 
+# -----------------------------
+# BUG FIX #2a: explicit generation controls on Cortex COMPLETE
+# -----------------------------
+# Problem (original code): COMPLETE was called with only (model, prompt) and
+# no options object, so there was no explicit max_tokens ceiling. For longer
+# prompts (schema context + DDL excerpts + business logic) the model's
+# default output budget can run out mid-statement, producing genuinely
+# truncated SQL even without the threading race condition.
+#
+# Fix: always pass an explicit options object (max_tokens, temperature) so
+# generation has enough room to finish, and behavior is deterministic
+# (temperature=0.0) for SQL generation.
+def call_cortex_complete(prompt: str, max_tokens: int = None, temperature: float = None) -> str:
+    max_tokens = CORTEX_MAX_TOKENS if max_tokens is None else max_tokens
+    temperature = CORTEX_TEMPERATURE if temperature is None else temperature
+ 
+    options = {
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    options_json = json.dumps(options)
+ 
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, %s, PARSE_JSON(%s))",
+            (CORTEX_MODEL_NAME, prompt, options_json),
+        )
+        out = cur.fetchone()[0] or ""
+    return out
+ 
 # -----------------------------
 # 5) Generation (Augment + Generate)
 # -----------------------------
-def sanitize_sql_output(text: str) -> str:
+ 
+# -----------------------------
+# BUG FIX #2b: truncation-safe SQL sanitization
+# -----------------------------
+# Problem (original code): sanitize_sql_output() unconditionally appended a
+# trailing ";" whenever the model output didn't already end with one. This
+# silently converted empty strings into a bare ";" (a syntactically "valid
+# looking" but empty statement) and converted genuinely truncated SQL
+# (e.g. "...GROUP") into something that looked complete but wasn't.
+#
+# Fix: never blindly append a semicolon to paper over missing content.
+# Instead, run a few structural sanity checks (non-empty, balanced
+# parentheses, already well-formed) and only append ";" when the statement
+# looks structurally complete. Anything that fails these checks is flagged
+# explicitly as truncated/incomplete rather than silently "fixed".
+def sanitize_sql_output(text: str):
+    """
+    Returns (sql_or_none, is_suspect).
+    - sql_or_none: cleaned SQL string if it looks structurally complete,
+      otherwise None.
+    - is_suspect: True if the output looked empty / truncated / unbalanced.
+    """
     sql = (text or "").strip()
     sql = sql.removeprefix("```sql").removeprefix("```").strip()
+    if sql.endswith("```"):
+        sql = sql[:-3].strip()
+ 
+    if not sql:
+        return None, True
+ 
+    open_p = sql.count("(")
+    close_p = sql.count(")")
+    if open_p != close_p:
+        # Unbalanced parens is a strong signal of mid-statement truncation.
+        return None, True
+ 
     if not sql.endswith(";"):
-        sql += ";"
-    return sql
-
+        # If it's not already terminated and doesn't look like a complete
+        # statement (e.g. doesn't contain a FROM/SELECT structure at all),
+        # treat it as suspect rather than guessing.
+        if not re.search(r"\bSELECT\b", sql, flags=re.IGNORECASE):
+            return None, True
+        sql = sql + ";"
+ 
+    return sql, False
+ 
 def converting_english_sql(logic: str, top_k_chunks: int = 8) -> str:
     """
     Full RAG: allow-list + top-K DDL chunks (keyword retrieval) -> grounded prompt -> SQL via Cortex COMPLETE.
     """
     schema_json = fetch_schema_allowlist_json()
-    # Narrow to relevant tables to keep prompt compact
-
+ 
     try:
         tables = select_relevant_tables(logic, schema_json)
     except Exception:
         tables = []
-
+ 
     if tables:
         full_schema = json.loads(schema_json)
         reduced = {t: full_schema.get(t, []) for t in tables}
         schema_context = json.dumps(reduced)
     else:
         schema_context = schema_json
-
+ 
     ddl_context = retrieve_relevant_ddl_chunks(logic, k=top_k_chunks)
-
+ 
     prompt = f"""
 You are an expert Snowflake SQL developer.
-
+ 
 Task:
 Convert the following business logic into a single, valid Snowflake SQL statement.
-
+ 
 Business Logic:
 {logic}
-
+ 
 Use ONLY these tables and columns (strict allow-list; JSON mapping table -> [columns]):
 {schema_context}
-
+ 
 Additional context (relevant DDL excerpts for reference):
 {ddl_context}
-
+ 
 Hard rules:
 - Do NOT use any table or column not listed in the JSON allow-list.
 - Fully qualify all tables with {SF_SCHEMA}.<TABLE>.
@@ -241,55 +342,73 @@ Hard rules:
 -Table aliases MUST follow: t1, t2, t3, ...
 - End with a semicolon.
 """
-    with conn.cursor() as cur:
-        cur.execute("SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, %s)", (CORTEX_MODEL_NAME, prompt))
-        out = cur.fetchone()[0] or ""
-
-    return sanitize_sql_output(out)
-
-
+    raw_out = call_cortex_complete(prompt, max_tokens=CORTEX_MAX_TOKENS, temperature=CORTEX_TEMPERATURE)
+    sql, is_suspect = sanitize_sql_output(raw_out)
+ 
+    if is_suspect or sql is None:
+        # Make the failure mode explicit and loud instead of guessing.
+        return (
+            "-- GENERATION_TRUNCATED_OR_EMPTY\n"
+            "-- The model output was empty, unbalanced, or did not look like "
+            "a complete statement. Re-run this row.\n"
+            f"-- Raw output was: {raw_out!r}"
+        )
+ 
+    return sql
+ 
+ 
 def validation_sql(generated_sql_list):
     validated = []
     for sql in generated_sql_list:
         sql_clean = sql.replace("```sql", "").replace("```", "").strip()
+        if sql_clean.startswith("-- GENERATION_TRUNCATED_OR_EMPTY"):
+            # Don't even attempt to execute a statement we already know is
+            # incomplete -- just pass the flagged placeholder through.
+            validated.append(sql)
+            continue
         try:
             _ = sql_read(sql_clean)
-            validated.append(sql)# keep original in output
+            validated.append(sql)
         except Exception as e:
             validated.append(f"-- INVALID SQL\n-- {str(e)}\n{sql}")
     return validated
-
+ 
 def process_row(row):
+    # Each call to process_row may run on a different worker thread; thanks
+    # to get_connection()'s threading.local() storage, each thread uses its
+    # own private Snowflake connection, so concurrent calls no longer race
+    # on a shared cursor/session.
     src_logic = str(row["SRC_LOGIC"])
     tgt_logic = str(row["TARGET_LOGIC"])
-
+ 
     sql_src = converting_english_sql(src_logic, top_k_chunks=8)
     sql_tgt = converting_english_sql(tgt_logic, top_k_chunks=8)
-
+ 
     return sql_src, sql_tgt
+ 
 def main():
     refresh_schema_chunks()
-
+ 
     st.set_page_config(
         page_title="GEN AI SQL Generator",
         page_icon="⚙️",
         layout="wide"
     )
-
+ 
     # ---------------- Custom CSS with glow effects ---------------- #
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;600;700&display=swap');
-
+ 
     .stApp {
         background: linear-gradient(135deg, #020b1a 0%, #0a1628 40%, #0d1f35 70%, #081422 100%);
     }
-
+ 
     .block-container {
         padding-top: 1rem;
         max-width: 1200px;
     }
-
+ 
     /* HERO BANNER */
     .hero-banner {
         background: linear-gradient(135deg, #050d20, #0b1a2e, #0a2540);
@@ -302,7 +421,7 @@ def main():
         position: relative;
         overflow: hidden;
     }
-
+ 
     .hero-banner::before {
         content: '';
         position: absolute;
@@ -313,12 +432,12 @@ def main():
         background: radial-gradient(ellipse at center, rgba(0,255,170,0.03) 0%, transparent 70%);
         animation: rotate 20s linear infinite;
     }
-
+ 
     @keyframes rotate {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
     }
-
+ 
     .hero-title {
         font-family: 'Orbitron', monospace;
         font-size: 42px;
@@ -334,7 +453,7 @@ def main():
         z-index: 1;
         animation: glowPulse 3s ease-in-out infinite alternate;
     }
-
+ 
     @keyframes glowPulse {
         from {
             text-shadow:
@@ -351,7 +470,7 @@ def main():
                 0 0 100px rgba(0, 255, 170, 0.2);
         }
     }
-
+ 
     .hero-title .sql-text {
         color: #00ccff;
         text-shadow:
@@ -360,7 +479,7 @@ def main():
             0 0 40px rgba(0, 204, 255, 0.3),
             0 0 80px rgba(0, 204, 255, 0.15);
     }
-
+ 
     .hero-sub {
         margin-top: 12px;
         color: rgba(255,255,255,0.5);
@@ -371,7 +490,7 @@ def main():
         position: relative;
         z-index: 1;
     }
-
+ 
     /* SPLIT LAYOUT CARDS */
     .split-card {
         background: linear-gradient(145deg, #0a1628, #0d1f35);
@@ -385,12 +504,12 @@ def main():
         align-items: center;
         justify-content: center;
     }
-
+ 
     .image-card {
         position: relative;
         overflow: hidden;
     }
-
+ 
     .image-card::after {
         content: '';
         position: absolute;
@@ -399,7 +518,7 @@ def main():
         background: radial-gradient(ellipse at center, rgba(0,170,255,0.05) 0%, transparent 70%);
         pointer-events: none;
     }
-
+ 
     .image-card img {
         max-width: 100%;
         max-height: 280px;
@@ -407,7 +526,7 @@ def main():
         object-fit: contain;
         filter: drop-shadow(0 0 20px rgba(0, 170, 255, 0.15));
     }
-
+ 
     .upload-section-title {
         font-family: 'Inter', sans-serif;
         font-size: 20px;
@@ -418,11 +537,11 @@ def main():
         align-items: center;
         gap: 8px;
     }
-
+ 
     .upload-section-title .icon {
         font-size: 22px;
     }
-
+ 
     /* FILE UPLOADER STYLING */
     [data-testid="stFileUploader"] {
         background: rgba(255,255,255,0.03);
@@ -430,12 +549,12 @@ def main():
         padding: 1rem;
         border: 1px dashed rgba(0, 255, 170, 0.2);
     }
-
+ 
     [data-testid="stFileUploader"]:hover {
         border-color: rgba(0, 255, 170, 0.4);
         box-shadow: 0 0 20px rgba(0, 255, 170, 0.05);
     }
-
+ 
     /* BUTTONS */
     .stButton > button {
         background: linear-gradient(135deg, #00ffaa, #00ccff);
@@ -451,12 +570,12 @@ def main():
         box-shadow: 0 0 20px rgba(0, 255, 170, 0.2);
         transition: all 0.3s ease;
     }
-
+ 
     .stButton > button:hover {
         box-shadow: 0 0 30px rgba(0, 255, 170, 0.4), 0 0 60px rgba(0, 255, 170, 0.15);
         transform: translateY(-1px);
     }
-
+ 
     .stDownloadButton > button {
         background: linear-gradient(135deg, #00aaff, #0077ff);
         color: white;
@@ -469,11 +588,11 @@ def main():
         font-size: 16px;
         box-shadow: 0 0 20px rgba(0, 170, 255, 0.2);
     }
-
+ 
     .stDownloadButton > button:hover {
         box-shadow: 0 0 30px rgba(0, 170, 255, 0.4), 0 0 60px rgba(0, 170, 255, 0.15);
     }
-
+ 
     /* METRICS */
     [data-testid="stMetric"] {
         background: rgba(0, 255, 170, 0.05);
@@ -481,65 +600,63 @@ def main():
         border-radius: 12px;
         padding: 1rem;
     }
-
+ 
     [data-testid="stMetricValue"] {
         color: #00ffaa;
         font-family: 'Orbitron', monospace;
     }
-
+ 
     /* DATAFRAME */
     [data-testid="stDataFrame"] {
         border-radius: 12px;
         overflow: hidden;
     }
-
+ 
     /* SUCCESS / SPINNER */
-        /* SUCCESS / SPINNER */
     .stSuccess, [data-testid="stNotification"] {
         background: rgba(0, 255, 170, 0.08) !important;
         border: 1px solid rgba(0, 255, 170, 0.2) !important;
         border-radius: 12px;
         color: #00ffaa !important;
     }
-
+ 
     .stSuccess p, [data-testid="stNotification"] p {
         color: #00ffaa !important;
     }
-
+ 
     /* GLOBAL TEXT VISIBILITY */
     .stApp, .stApp p, .stApp span, .stApp label, .stApp div {
         color: rgba(255, 255, 255, 0.85);
     }
-
+ 
     /* TOGGLE / CHECKBOX LABELS */
     [data-testid="stCheckbox"] label span,
     .stToggle label span,
     [data-testid="stToggle"] label span {
         color: rgba(255, 255, 255, 0.85) !important;
     }
-
+ 
     /* METRIC LABELS */
     [data-testid="stMetricLabel"] {
         color: rgba(255, 255, 255, 0.6) !important;
     }
-
+ 
     [data-testid="stMetricLabel"] p {
         color: rgba(255, 255, 255, 0.6) !important;
     }
-
-    /* FILE UPLOADER TEXT */
+ 
     /* FILE UPLOADER TEXT & ELEMENTS */
     [data-testid="stFileUploader"] *,
     [data-testid="stFileUploaderDropzone"] * {
         color: rgba(255, 255, 255, 0.7) !important;
     }
-
-        [data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
+ 
+    [data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
         background: #0a1628 !important;
         border: 1px dashed rgba(0, 255, 170, 0.3) !important;
         border-radius: 12px !important;
     }
-
+ 
     [data-testid="stFileUploaderDropzone"] button {
         background: linear-gradient(135deg, #00ffaa, #00ccff) !important;
         color: #07121f !important;
@@ -553,12 +670,12 @@ def main():
     .stDownloadButton > button {
         color: white !important;
     }
-
+ 
     /* DIVIDER */
     hr {
         border-color: rgba(0, 255, 170, 0.1);
     }
-
+ 
     /* Placeholder image SVG */
     .placeholder-img {
         width: 100%;
@@ -567,7 +684,7 @@ def main():
     }
     </style>
     """, unsafe_allow_html=True)
-
+ 
     # ---------------- HERO BANNER ---------------- #
     st.markdown("""
     <div class="hero-banner">
@@ -579,12 +696,11 @@ def main():
         </div>
     </div>
     """, unsafe_allow_html=True)
-
+ 
     # ---------------- SPLIT LAYOUT: Image | Upload ---------------- #
     col_img, col_upload = st.columns([1, 1], gap="large")
-
+ 
     with col_img:
-        # Load background image via base64
         img_path = "gen_ai_sql_bg.jpg.png"
         try:
             with open(img_path, "rb") as f:
@@ -609,20 +725,20 @@ def main():
                 </svg>
             </div>
             """, unsafe_allow_html=True)
-
+ 
     with col_upload:
         st.markdown("""
         <div class="upload-section-title" style="font-size: 12px;">
          <span class="icon">📁</span> Upload your requirements
       </div>
      """, unsafe_allow_html=True)
-
+ 
         uploaded_file = st.file_uploader(
             "Upload CSV or Excel file",
             type=["xlsx", "xls", "csv"],
             label_visibility="collapsed"
         )
-
+ 
     # ---------------- FILE PROCESSING (below the split) ---------------- #
     if uploaded_file is not None:
         with st.spinner("Reading file..."):
@@ -630,39 +746,44 @@ def main():
                 df = pd.read_csv(uploaded_file)
             else:
                 df = pd.read_excel(uploaded_file)
-
+ 
         st.success("File uploaded successfully ✅")
-
+ 
         col1, col2 = st.columns(2)
         col1.metric("Rows", df.shape[0])
         col2.metric("Columns", df.shape[1])
-
+ 
         if st.toggle("Preview data"):
             st.dataframe(df.head(1000), use_container_width=True, hide_index=True)
-
+ 
         st.divider()
-
+ 
         if st.button("🤖 Generate SQL"):
+            # Note: max_workers is no longer a stability knob now that each
+            # thread has its own Snowflake connection (Bug Fix #1). You can
+            # safely raise this back up for throughput; tune based on your
+            # warehouse size / Cortex rate limits rather than race-condition risk.
             with ThreadPoolExecutor(max_workers=8) as executor:
                 results = list(executor.map(process_row, [row for _, row in df.iterrows()]))
-
+ 
             for sql_src, sql_tgt in results:
-              src_generated_sql.append(sql_src)
-              tgt_generated_sql.append(sql_tgt)
+                src_generated_sql.append(sql_src)
+                tgt_generated_sql.append(sql_tgt)
             src_validated_sql = validation_sql(src_generated_sql)
             tgt_validated_sql = validation_sql(tgt_generated_sql)
             df["Generated_Src_SQL"] = src_validated_sql
             df["Generated_Tgt_SQL"] = tgt_validated_sql
-
+ 
             csv = df.to_csv(index=False).encode("utf-8")
             st.success("SQL generation completed ✅")
-
+ 
             st.download_button(
                 "⬇ Download SQL file",
                 csv,
                 "output_with_sql.csv",
                 "text/csv"
             )
-
+ 
 if __name__ == "__main__":
     main()
+ 
