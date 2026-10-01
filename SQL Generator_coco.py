@@ -232,30 +232,22 @@ Rules:
 def call_cortex_complete(prompt: str, max_tokens: int = None, temperature: float = None) -> str:
     max_tokens = CORTEX_MAX_TOKENS if max_tokens is None else max_tokens
     temperature = CORTEX_TEMPERATURE if temperature is None else temperature
-
+ 
     options = {
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
     options_json = json.dumps(options)
-
-    # NOTE: SNOWFLAKE.CORTEX.COMPLETE requires its model-name argument to be
-    # a compile-time string literal -- Snowflake rejects it if passed as a
-    # bind parameter ("Argument number 0 for function 'COMPLETE$V6' needs to
-    # be a string literal."). CORTEX_MODEL_NAME is a fixed internal constant
-    # (not user input), so it's safe to inline directly into the SQL text.
-    # The escaping below just guards against a stray single quote if that
-    # constant is ever changed.
-    safe_model_literal = CORTEX_MODEL_NAME.replace("'", "''")
-
+ 
     conn = get_connection()
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT SNOWFLAKE.CORTEX.COMPLETE('{safe_model_literal}', %s, PARSE_JSON(%s))",
-            (prompt, options_json),
+            "SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, %s, PARSE_JSON(%s))",
+            (CORTEX_MODEL_NAME, prompt, options_json),
         )
         out = cur.fetchone()[0] or ""
     return out
+ 
 # -----------------------------
 # 5) Generation (Augment + Generate)
 # -----------------------------
