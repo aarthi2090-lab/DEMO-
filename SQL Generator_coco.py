@@ -229,24 +229,71 @@ Rules:
 # Fix: always pass an explicit options object (max_tokens, temperature) so
 # generation has enough room to finish, and behavior is deterministic
 # (temperature=0.0) for SQL generation.
-def call_cortex_complete(prompt: str, max_tokens: int = None, temperature: float = None) -> str:
-    max_tokens = CORTEX_MAX_TOKENS if max_tokens is None else max_tokens
-    temperature = CORTEX_TEMPERATURE if temperature is None else temperature
- 
+def call_cortex_complete(
+    prompt: str,
+    max_tokens: int = None,
+    temperature: float = None
+) -> str:
+
+    max_tokens = (
+        CORTEX_MAX_TOKENS
+        if max_tokens is None
+        else max_tokens
+    )
+
+    temperature = (
+        CORTEX_TEMPERATURE
+        if temperature is None
+        else temperature
+    )
+
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", CORTEX_MODEL_NAME):
+        raise ValueError(
+            f"Invalid Cortex model name: {CORTEX_MODEL_NAME}"
+        )
+
+    messages = [
+        {
+            "role": "user",
+            "content": prompt,
+        }
+    ]
+
     options = {
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+
+    messages_json = json.dumps(messages)
     options_json = json.dumps(options)
- 
+
+    cortex_sql = f"""
+        SELECT SNOWFLAKE.CORTEX.COMPLETE(
+            '{CORTEX_MODEL_NAME}',
+            PARSE_JSON(%s),
+            PARSE_JSON(%s)
+        )
+    """
+
     conn = get_connection()
+
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, %s, PARSE_JSON(%s))",
-            (CORTEX_MODEL_NAME, prompt, options_json),
+            cortex_sql,
+            (
+                messages_json,
+                options_json,
+            ),
         )
-        out = cur.fetchone()[0] or ""
-    return out
+
+        row = cur.fetchone()
+
+    if row is None or row[0] is None:
+        raise RuntimeError(
+            "Snowflake Cortex COMPLETE returned an empty response."
+        )
+
+    return str(row[0]).strip()
  
 # -----------------------------
 # 5) Generation (Augment + Generate)
