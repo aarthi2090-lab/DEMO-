@@ -643,7 +643,7 @@ def main():
         st.divider()
 
         if st.button("🤖 Generate SQL"):
-            with ThreadPoolExecutor(max_workers=1) as executor:
+            with ThreadPoolExecutor(max_workers=4) as executor:
                 results = list(executor.map(process_row, [row for _, row in df.iterrows()]))
 
             for sql_src, sql_tgt in results:
